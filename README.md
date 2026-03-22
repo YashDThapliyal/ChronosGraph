@@ -1,5 +1,6 @@
-# ChronosGraph
+<img width="1393" height="649" alt="Screenshot 2026-03-21 at 7 37 56 PM" src="https://github.com/user-attachments/assets/d8dc6259-fbbf-41d3-8a09-3c727556c5ed" />
 
+# ChronosGraph
 **AI agents operating in dynamic environments have no persistent memory of what they have observed.** They can only answer questions from what is present in the current context window. When that context grows large or spans many timesteps, models hallucinate, miss temporal overlaps, and confidently state the wrong location for objects they have already forgotten.
 
 **We propose ChronosGraph: an approach that replaces context stuffing with a temporal knowledge graph.** Every state change in the environment is recorded as a timestamped relationship in Neo4j, and the agent queries that graph through structured tools rather than reasoning over raw text. This gives verifiable, exact answers to questions like "where was the key before it was hidden?" regardless of how many objects or timesteps have elapsed.
