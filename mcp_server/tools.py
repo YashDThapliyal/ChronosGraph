@@ -265,6 +265,130 @@ def build_tool_registry(
             handler=get_containment_history,
         )
 
+        # ---- Discovery tools ----
+
+        def list_entities(arguments: dict[str, Any]) -> dict[str, Any]:
+            entity_type = arguments.get("entity_type")
+            if entity_type is not None and not isinstance(entity_type, str):
+                raise ValueError("entity_type must be a string if provided")
+            entities = graph_api.list_entities(entity_type or None)
+            return {"entities": entities}
+
+        def list_containers(arguments: dict[str, Any]) -> dict[str, Any]:
+            containers = graph_api.list_containers()
+            return {"containers": containers}
+
+        def find_co_located(arguments: dict[str, Any]) -> dict[str, Any]:
+            entity_id = _require_string(arguments, "entity_id")
+            timestamp = _require_number(arguments, "timestamp")
+            others = graph_api.find_co_located(entity_id, timestamp)
+            return {"entity_id": entity_id, "timestamp": timestamp, "co_located": others}
+
+        registry["list_entities"] = ToolDefinition(
+            name="list_entities",
+            description=(
+                "List all entity IDs tracked in the world model. "
+                "Use this to discover what objects exist before querying their history. "
+                "Optionally filter by entity_type (e.g. 'object' or 'container')."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "entity_type": {
+                        "type": "string",
+                        "description": "Optional filter. Omit to list all entities.",
+                    }
+                },
+                "additionalProperties": False,
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "entities": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "entity_id":   {"type": "string"},
+                                "entity_type": {"type": "string"},
+                            },
+                            "required": ["entity_id", "entity_type"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["entities"],
+                "additionalProperties": False,
+            },
+            handler=list_entities,
+        )
+
+        registry["list_containers"] = ToolDefinition(
+            name="list_containers",
+            description=(
+                "List all container IDs that have ever held at least one entity. "
+                "Use this to discover what containers exist before querying their contents."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "containers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    }
+                },
+                "required": ["containers"],
+                "additionalProperties": False,
+            },
+            handler=list_containers,
+        )
+
+        registry["find_co_located"] = ToolDefinition(
+            name="find_co_located",
+            description=(
+                "Find all other entities that were in the same container as a given entity "
+                "at a specific timestamp. Useful for questions like "
+                "'what was with the keys when they were in the drawer?'"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "entity_id": {"type": "string"},
+                    "timestamp": {"type": "number"},
+                },
+                "required": ["entity_id", "timestamp"],
+                "additionalProperties": False,
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "entity_id":  {"type": "string"},
+                    "timestamp":  {"type": "number"},
+                    "co_located": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "entity_id":        {"type": "string"},
+                                "entity_type":      {"type": "string"},
+                                "shared_container": {"type": "string"},
+                            },
+                            "required": ["entity_id", "entity_type", "shared_container"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["entity_id", "timestamp", "co_located"],
+                "additionalProperties": False,
+            },
+            handler=find_co_located,
+        )
+
     return registry
 
 

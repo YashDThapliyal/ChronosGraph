@@ -32,7 +32,7 @@ from datetime import datetime
 from typing import Any
 
 from agent.openai_agent import OpenAIToolAgent
-from benchmark.questions import QUESTIONS
+from benchmark.questions import MEGA_QUESTIONS, QUESTIONS
 from chronosgraph.bootstrap import bootstrap_world
 from graph.neo4j_graph import Neo4jGraph
 from mcp_server.tools import build_tool_registry
@@ -44,7 +44,7 @@ from world.world_state_engine import WorldStateEngine
 # Shared system prompt (identical for all three modes)
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = (
+SYSTEM_PROMPT_COMPLEX = (
     "You are an agent with access to a temporal world model.\n"
     "The world contains entities (objects and containers) that move between "
     "locations over time.\n\n"
@@ -59,6 +59,27 @@ SYSTEM_PROMPT = (
     "When asked yes/no, start your answer with 'yes' or 'no'."
 )
 
+SYSTEM_PROMPT_MEGA = (
+    "You are an agent with access to a temporal world model.\n"
+    "The world contains entities (objects and containers) that move between "
+    "locations over time.\n\n"
+    "Entity IDs used in this episode:\n"
+    "  keys_001    -- a set of keys\n"
+    "  card_001    -- a credit card\n"
+    "  knife_001   -- a kitchen knife\n"
+    "  mug_001     -- a mug\n"
+    "  spatula_001 -- a spatula\n"
+    "  drawer_01   -- a kitchen drawer\n"
+    "  counter_01  -- a kitchen counter\n"
+    "  fridge_01   -- a refrigerator\n\n"
+    "Answer concisely and precisely. "
+    "When asked for a list, return items separated by commas. "
+    "When asked yes/no, start your answer with 'yes' or 'no'."
+)
+
+# Alias for backwards compatibility — default is complex episode
+SYSTEM_PROMPT = SYSTEM_PROMPT_COMPLEX
+
 NEO4J_URI      = "bolt://localhost:7687"
 NEO4J_USER     = "neo4j"
 NEO4J_PASSWORD = "testpassword"
@@ -68,26 +89,34 @@ NEO4J_PASSWORD = "testpassword"
 # Context builder (for context-stuffed mode)
 # ---------------------------------------------------------------------------
 
-def build_context(graph_api: GraphQueryAPI) -> str:
+def build_context(graph_api: GraphQueryAPI, mega: bool = False) -> str:
     """
     Produce a complete text dump of the world state from Neo4j.
 
     Includes: current location of every tracked entity, full containment
-    history of each entity, and all recorded events.
+    history of each entity, current container contents, and full event log.
+    With mega=True, covers all 6 objects and 3 containers.
     """
     lines: list[str] = ["=== WORLD STATE DUMP ===\n"]
 
+    if mega:
+        moveable = ["keys_001", "card_001", "knife_001", "mug_001", "spatula_001"]
+        containers = ["drawer_01", "counter_01", "fridge_01"]
+    else:
+        moveable = ["keys_001", "card_001"]
+        containers = ["drawer_01", "counter_01", "table_01"]
+
     # Current location of each moveable object
     lines.append("--- Current Locations ---")
-    for eid in ["keys_001", "card_001"]:
+    for eid in moveable:
         result = graph_api.where_is(eid)
         lines.append(f"  {eid}: {result['parent'] or 'unknown'}")
 
     lines.append("")
 
     # Full containment history
-    lines.append("--- Containment History ---")
-    for eid in ["keys_001", "card_001"]:
+    lines.append("--- Containment History (chronological) ---")
+    for eid in moveable:
         history = graph_api.get_containment_history(eid)
         if history:
             lines.append(f"  {eid}:")
@@ -99,9 +128,9 @@ def build_context(graph_api: GraphQueryAPI) -> str:
 
     lines.append("")
 
-    # What is currently inside containers
+    # What is currently inside each container
     lines.append("--- Container Contents (current) ---")
-    for cid in ["drawer_01", "counter_01", "table_01"]:
+    for cid in containers:
         contents = graph_api.whats_inside(cid)
         if contents:
             names = ", ".join(e["entity_id"] for e in contents)
@@ -111,17 +140,15 @@ def build_context(graph_api: GraphQueryAPI) -> str:
 
     lines.append("")
 
-    # Full event log
-    lines.append("--- Event Log (all relationship changes) ---")
-    for eid in ["keys_001", "card_001"]:
+    # Full event log (relationship changes only)
+    lines.append("--- Event Log (all containment changes, chronological) ---")
+    for eid in moveable:
         events = graph_api.what_happened(eid)
         rel_events = [e for e in events if e.get("event_type") == "RelationshipChangedEvent"]
         if rel_events:
             lines.append(f"  {eid}:")
             for ev in rel_events:
-                lines.append(
-                    f"    t={ev['timestamp']:.2f}  moved to parent={ev['parent']}"
-                )
+                lines.append(f"    t={ev['timestamp']:.2f}  moved to parent={ev['parent']}")
         else:
             lines.append(f"  {eid}: no containment events")
 
@@ -298,6 +325,10 @@ def main(argv: list[str] | None = None) -> None:
         "--neo4j-password", default=NEO4J_PASSWORD,
         help="Neo4j password (default: testpassword)",
     )
+    parser.add_argument(
+        "--mega", action="store_true",
+        help="Run MegaEpisode (6 objects, 61 steps) instead of ComplexEpisode (2 objects, 27 steps)",
+    )
     args = parser.parse_args(argv)
 
     # ---- OpenAI client ----
@@ -318,26 +349,29 @@ def main(argv: list[str] | None = None) -> None:
     print("Clearing previous graph data ...", flush=True)
     neo4j_graph.run_cypher("MATCH (n) DETACH DELETE n", {})
 
-    print("Bootstrapping world (runs AI2-THOR episode) ...", flush=True)
-    result = bootstrap_world(neo4j_graph=neo4j_graph)
+    episode_label = "mega" if args.mega else "complex"
+    print(f"Bootstrapping world ({episode_label} episode) ...", flush=True)
+    result = bootstrap_world(neo4j_graph=neo4j_graph, use_mega_episode=args.mega)
     world_engine: WorldStateEngine = result if isinstance(result, WorldStateEngine) else result[0]
 
     graph_api = GraphQueryAPI(neo4j_graph)
     world_api  = WorldQueryAPI(world_engine)
 
     # ---- Build graph agent ----
+    system_prompt = SYSTEM_PROMPT_MEGA if args.mega else SYSTEM_PROMPT_COMPLEX
     registry = build_tool_registry(world_api, graph_api=graph_api)
-    graph_agent = OpenAIToolAgent(registry, model=args.model, system_prompt=SYSTEM_PROMPT)
+    graph_agent = OpenAIToolAgent(registry, model=args.model, system_prompt=system_prompt)
 
     # ---- Build context string (used by context-stuffed mode) ----
     print("Building world context dump ...", flush=True)
-    context = build_context(graph_api)
+    context = build_context(graph_api, mega=args.mega)
 
-    print(f"\nRunning {len(QUESTIONS)} questions across 3 modes ...\n")
+    questions = MEGA_QUESTIONS if args.mega else QUESTIONS
+    print(f"\nRunning {len(questions)} questions across 3 modes ({episode_label} episode) ...\n")
 
     all_results: list[dict[str, Any]] = []
 
-    for q in QUESTIONS:
+    for q in questions:
         ground_truth = q.ground_truth(graph_api)
         print(f"[{q.id}] {q.question}")
         print(f"       ground_truth = {ground_truth}")
@@ -393,10 +427,11 @@ def main(argv: list[str] | None = None) -> None:
 
     # ---- Save JSON ----
     output = {
-        "run_at":     datetime.now().isoformat(),
-        "model":      args.model,
+        "run_at":      datetime.now().isoformat(),
+        "episode":     episode_label,
+        "model":       args.model,
         "judge_model": args.judge_model,
-        "results":    all_results,
+        "results":     all_results,
     }
     with open(args.out, "w") as fh:
         json.dump(output, fh, indent=2)

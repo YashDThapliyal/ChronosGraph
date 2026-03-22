@@ -115,6 +115,67 @@ class GraphQueryAPI:
             for row in rows
         ]
 
+    def list_entities(self, entity_type: str | None = None) -> list[dict[str, Any]]:
+        """Return all tracked entity IDs, optionally filtered by type."""
+        if entity_type:
+            rows = self._graph.run_cypher(
+                """
+                MATCH (e:Entity {entity_type: $entity_type})
+                RETURN e.entity_id AS entity_id, e.entity_type AS entity_type
+                ORDER BY e.entity_id
+                """,
+                {"entity_type": entity_type},
+            )
+        else:
+            rows = self._graph.run_cypher(
+                """
+                MATCH (e:Entity)
+                RETURN e.entity_id AS entity_id, e.entity_type AS entity_type
+                ORDER BY e.entity_id
+                """,
+                {},
+            )
+        return [{"entity_id": r["entity_id"], "entity_type": r["entity_type"]} for r in rows]
+
+    def list_containers(self) -> list[str]:
+        """Return all entity IDs that have ever acted as a container."""
+        rows = self._graph.run_cypher(
+            """
+            MATCH ()-[:INSIDE]->(c:Entity)
+            RETURN DISTINCT c.entity_id AS container_id
+            ORDER BY c.entity_id
+            """,
+            {},
+        )
+        return [r["container_id"] for r in rows]
+
+    def find_co_located(self, entity_id: str, timestamp: float) -> list[dict[str, Any]]:
+        """Return all other entities that were in the same container as entity_id at timestamp."""
+        rows = self._graph.run_cypher(
+            """
+            MATCH (e:Entity {entity_id: $entity_id})-[r1:INSIDE]->(c:Entity)
+            WHERE r1.from_time <= $timestamp
+              AND (r1.to_time IS NULL OR r1.to_time > $timestamp)
+            MATCH (other:Entity)-[r2:INSIDE]->(c)
+            WHERE r2.from_time <= $timestamp
+              AND (r2.to_time IS NULL OR r2.to_time > $timestamp)
+              AND other.entity_id <> $entity_id
+            RETURN other.entity_id AS entity_id,
+                   other.entity_type AS entity_type,
+                   c.entity_id AS shared_container
+            ORDER BY other.entity_id
+            """,
+            {"entity_id": entity_id, "timestamp": timestamp},
+        )
+        return [
+            {
+                "entity_id":        r["entity_id"],
+                "entity_type":      r["entity_type"],
+                "shared_container": r["shared_container"],
+            }
+            for r in rows
+        ]
+
     def get_containment_history(self, entity_id: str) -> list[dict[str, Any]]:
         """Return every container an entity has been inside, in order."""
         rows = self._graph.run_cypher(

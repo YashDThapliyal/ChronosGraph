@@ -73,6 +73,21 @@ def _container_before(api: "GraphQueryAPI", entity_id: str, target: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Helper — number of containers an entity passed through
+# ---------------------------------------------------------------------------
+
+def _ever_co_located(api: "GraphQueryAPI", eid_a: str, eid_b: str) -> str:
+    """Return the shared container if the two entities were ever in the same place."""
+    hist_a = api.get_containment_history(eid_a)
+    for entry in hist_a:
+        t_mid = entry["from_time"] + 0.05  # just inside the window
+        co = api.find_co_located(eid_a, t_mid)
+        if any(c["entity_id"] == eid_b for c in co):
+            return entry["container"]
+    return "never"
+
+
+# ---------------------------------------------------------------------------
 # Question bank (10 questions, increasing difficulty)
 # ---------------------------------------------------------------------------
 
@@ -153,5 +168,126 @@ QUESTIONS: list[Question] = [
         category="sequential_history",
         hint="requires reading ordered containment history and finding the predecessor",
         ground_truth_fn=lambda api: _container_before(api, "keys_001", "drawer_01"),
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Mega episode question bank (14 questions, 6 objects, designed to break
+# context stuffing — hardcoded entity IDs from MegaEpisode aliases)
+# ---------------------------------------------------------------------------
+
+MEGA_QUESTIONS: list[Question] = [
+    # --- Tier 1: current state — all deceptive ---
+    Question(
+        id="m01",
+        question="Where are the keys (keys_001) right now?",
+        category="current_location",
+        hint="keys end in fridge_01 — most LLMs guess counter or drawer",
+        ground_truth_fn=lambda api: api.where_is("keys_001")["parent"],
+    ),
+    Question(
+        id="m02",
+        question="Where is card_001 right now?",
+        category="current_location",
+        hint="card ends on counter_01 — LLMs may say fridge since it was there",
+        ground_truth_fn=lambda api: api.where_is("card_001")["parent"],
+    ),
+    Question(
+        id="m03",
+        question="What objects are currently inside drawer_01?",
+        category="container_contents",
+        hint="drawer ends with mug + spatula — LLMs say keys/card/knife",
+        ground_truth_fn=lambda api: [e["entity_id"] for e in api.whats_inside("drawer_01")] or ["nothing"],
+    ),
+    Question(
+        id="m04",
+        question="What objects are currently inside fridge_01?",
+        category="container_contents",
+        hint="fridge ends with only keys_001 — LLMs say card since it was there longer",
+        ground_truth_fn=lambda api: [e["entity_id"] for e in api.whats_inside("fridge_01")] or ["nothing"],
+    ),
+    Question(
+        id="m05",
+        question="What objects are currently on counter_01?",
+        category="container_contents",
+        hint="counter ends with card_001 and knife_001",
+        ground_truth_fn=lambda api: sorted([e["entity_id"] for e in api.whats_inside("counter_01")]) or ["nothing"],
+    ),
+
+    # --- Tier 2: historical point-in-time ---
+    Question(
+        id="m06",
+        question="Where was knife_001 at t=2.5?",
+        category="historical_location",
+        hint="knife was in drawer_01 during the middle phase",
+        ground_truth_fn=lambda api: api.where_was("knife_001", 2.5)["parent"],
+    ),
+    Question(
+        id="m07",
+        question="What was inside drawer_01 at t=1.5?",
+        category="historical_contents",
+        hint="at t=1.5 both keys and card are in drawer",
+        ground_truth_fn=lambda api: _entities_in_container_at(api, "drawer_01", 1.5),
+    ),
+    Question(
+        id="m08",
+        question="What was inside fridge_01 at t=3.5?",
+        category="historical_contents",
+        hint="at t=3.5 card is in fridge but keys have not arrived yet",
+        ground_truth_fn=lambda api: _entities_in_container_at(api, "fridge_01", 3.5),
+    ),
+
+    # --- Tier 3: full history ---
+    Question(
+        id="m09",
+        question="List every container keys_001 has been in, in order.",
+        category="full_history",
+        hint="keys: counter -> drawer -> counter -> fridge (4 stops)",
+        ground_truth_fn=lambda api: [h["container"] for h in api.get_containment_history("keys_001")],
+    ),
+    Question(
+        id="m10",
+        question="List every container card_001 has been in, in order.",
+        category="full_history",
+        hint="card: counter -> drawer -> fridge -> counter (4 stops)",
+        ground_truth_fn=lambda api: [h["container"] for h in api.get_containment_history("card_001")],
+    ),
+    Question(
+        id="m11",
+        question="List every container knife_001 has been in, in order.",
+        category="full_history",
+        hint="knife: counter -> drawer -> counter (3 stops)",
+        ground_truth_fn=lambda api: [h["container"] for h in api.get_containment_history("knife_001")],
+    ),
+
+    # --- Tier 4: cross-entity reasoning ---
+    Question(
+        id="m12",
+        question="How many different containers has keys_001 been in total?",
+        category="aggregation",
+        hint="keys visits 3 distinct containers across 4 moves",
+        ground_truth_fn=lambda api: len({h["container"] for h in api.get_containment_history("keys_001")}),
+    ),
+    Question(
+        id="m13",
+        question="Were keys_001 and card_001 ever in the same container at the same time? If yes, which container?",
+        category="co_location",
+        hint="both were in drawer_01 together briefly",
+        ground_truth_fn=lambda api: _ever_co_located(api, "keys_001", "card_001"),
+    ),
+    Question(
+        id="m14",
+        question="Which objects have ever been inside fridge_01?",
+        category="container_history",
+        hint="requires scanning containment history across all entities — card and keys both visited fridge",
+        ground_truth_fn=lambda api: sorted([
+            h["entity_id"]
+            for h in api._graph.run_cypher(
+                "MATCH (e:Entity)-[:INSIDE]->(c:Entity {entity_id: 'fridge_01'}) "
+                "RETURN DISTINCT e.entity_id AS entity_id ORDER BY e.entity_id",
+                {},
+            )
+        ]) or ["nothing"],
     ),
 ]

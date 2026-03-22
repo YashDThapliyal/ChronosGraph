@@ -14,6 +14,7 @@ from core.event_engine import (
     VisibilityChangedEvent,
 )
 from episodes.complex_episode import ComplexEpisode
+from episodes.mega_episode import MegaEpisode
 from simulator import AI2ThorSimulator
 from simulator.models import Observation
 from world.world_state_engine import WorldStateEngine
@@ -56,19 +57,22 @@ def bootstrap_world(
     demo: bool = False,
     return_artifacts: bool = False,
     neo4j_graph: Optional["Neo4jGraph"] = None,
+    use_mega_episode: bool = False,
 ) -> WorldStateEngine | tuple[WorldStateEngine, list[dict[str, Any]], list[Any]]:
     """
-    Run the hidden-object episode and return a populated world model.
+    Run the scripted episode and return a populated world model.
 
     Args:
-        demo:             If True, print frame/event logs and apply a pacing delay.
-        return_artifacts: If True, also return event logs grouped by frame and
-                          captured frame images from the simulator.
-        neo4j_graph:      Optional connected Neo4jGraph instance. When provided,
-                          all events and entity snapshots are persisted to Neo4j.
+        demo:              If True, print frame/event logs and apply a pacing delay.
+        return_artifacts:  If True, also return event logs grouped by frame and
+                           captured frame images from the simulator.
+        neo4j_graph:       Optional connected Neo4jGraph instance. When provided,
+                           all events and entity snapshots are persisted to Neo4j.
+        use_mega_episode:  If True, run MegaEpisode (6 objects, 61 steps) instead of
+                           ComplexEpisode (2 objects, 27 steps).
     """
     simulator = AI2ThorSimulator()
-    episode = ComplexEpisode()
+    episode = MegaEpisode() if use_mega_episode else ComplexEpisode()
     change_detector = ChangeDetector()
     event_engine = EventEngine()
     world_engine = WorldStateEngine()
