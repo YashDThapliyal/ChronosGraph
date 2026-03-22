@@ -90,6 +90,31 @@ class GraphQueryAPI:
             for row in rows
         ]
 
+    def whats_inside_at(self, container_id: str, timestamp: float) -> list[dict[str, Any]]:
+        """Return all entities that were inside a container at a given timestamp."""
+        rows = self._graph.run_cypher(
+            """
+            MATCH (e:Entity)-[r:INSIDE]->(c:Entity {entity_id: $container_id})
+            WHERE r.from_time <= $timestamp
+              AND (r.to_time IS NULL OR r.to_time > $timestamp)
+            RETURN e.entity_id AS entity_id,
+                   e.entity_type AS entity_type,
+                   r.from_time AS from_time,
+                   r.to_time   AS to_time
+            ORDER BY e.entity_id
+            """,
+            {"container_id": container_id, "timestamp": timestamp},
+        )
+        return [
+            {
+                "entity_id":   row["entity_id"],
+                "entity_type": row["entity_type"],
+                "from_time":   row["from_time"],
+                "to_time":     row["to_time"],
+            }
+            for row in rows
+        ]
+
     def get_containment_history(self, entity_id: str) -> list[dict[str, Any]]:
         """Return every container an entity has been inside, in order."""
         rows = self._graph.run_cypher(

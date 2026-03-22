@@ -141,6 +141,12 @@ def build_tool_registry(
             entities = graph_api.whats_inside(container_id)
             return {"container_id": container_id, "entities": entities}
 
+        def find_entities_in_container_at(arguments: dict[str, Any]) -> dict[str, Any]:
+            container_id = _require_string(arguments, "container_id")
+            timestamp = _require_number(arguments, "timestamp")
+            entities = graph_api.whats_inside_at(container_id, timestamp)
+            return {"container_id": container_id, "timestamp": timestamp, "entities": entities}
+
         def get_containment_history(arguments: dict[str, Any]) -> dict[str, Any]:
             entity_id = _require_string(arguments, "entity_id")
             history = graph_api.get_containment_history(entity_id)
@@ -180,6 +186,47 @@ def build_tool_registry(
                 "additionalProperties": False,
             },
             handler=find_entities_in_container,
+        )
+
+        registry["find_entities_in_container_at"] = ToolDefinition(
+            name="find_entities_in_container_at",
+            description=(
+                "Find all entities that were inside a given container at a specific timestamp. "
+                "Use this to answer historical questions like 'what was in the drawer at t=2.0?'"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "container_id": {"type": "string"},
+                    "timestamp":    {"type": "number"},
+                },
+                "required": ["container_id", "timestamp"],
+                "additionalProperties": False,
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "container_id": {"type": "string"},
+                    "timestamp":    {"type": "number"},
+                    "entities": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "entity_id":   {"type": "string"},
+                                "entity_type": {"type": "string"},
+                                "from_time":   {"type": "number"},
+                                "to_time":     {"type": ["number", "null"]},
+                            },
+                            "required": ["entity_id", "entity_type", "from_time", "to_time"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["container_id", "timestamp", "entities"],
+                "additionalProperties": False,
+            },
+            handler=find_entities_in_container_at,
         )
 
         registry["get_containment_history"] = ToolDefinition(
