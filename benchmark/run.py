@@ -393,6 +393,7 @@ def main(argv: list[str] | None = None) -> None:
         graph_mark   = "PASS" if graph_score["correct"] else "FAIL"
         print(f"       graph:   {graph_mark} ({graph_latency*1000:.0f}ms)  | {_truncate(graph_answer, 50)}")
         print()
+        time.sleep(2)  # avoid TPM rate limit between questions
 
         all_results.append(
             {

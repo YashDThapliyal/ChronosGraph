@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -71,16 +72,28 @@ class OpenAIToolAgent:
             )
         return converted
 
+    def _chat_with_retry(self, **kwargs: Any) -> Any:
+        """Call chat.completions.create with exponential backoff on rate-limit errors."""
+        from openai import RateLimitError
+
+        delay = 5.0
+        for attempt in range(6):
+            try:
+                return self._client.chat.completions.create(**kwargs)
+            except RateLimitError as exc:
+                if attempt == 5:
+                    raise
+                print(f"  [rate limit] waiting {delay:.0f}s before retry ({attempt + 1}/5)...")
+                time.sleep(delay)
+                delay = min(delay * 2, 60.0)
+
     def run_without_tools(self, user_question: str) -> AgentResponse:
         """Single chat completion with no tools; model answers from reasoning only."""
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self._system_prompt},
             {"role": "user", "content": user_question},
         ]
-        completion = self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-        )
+        completion = self._chat_with_retry(model=self._model, messages=messages)
         answer = completion.choices[0].message.content or ""
         return AgentResponse(answer=answer, traces=[])
 
@@ -93,7 +106,7 @@ class OpenAIToolAgent:
         traces: list[ToolTrace] = []
 
         for _ in range(max_round_trips):
-            completion = self._client.chat.completions.create(
+            completion = self._chat_with_retry(
                 model=self._model,
                 messages=messages,
                 tools=self._tools,
