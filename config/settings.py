@@ -36,6 +36,14 @@ class ChronosGraphSettings:
     graph_backend: str = "stub"
 
     # ------------------------------------------------------------------ #
+    # Neo4j connection
+    # ------------------------------------------------------------------ #
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = "password"
+    use_neo4j: bool = False
+
+    # ------------------------------------------------------------------ #
     # LLM (reserved for Phase 5+)
     # ------------------------------------------------------------------ #
     llm_enabled: bool = False
