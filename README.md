@@ -38,12 +38,43 @@ Every entity becomes a node. Containment is a relationship with timestamps:
 (Entity {entity_id})-[:HAD_EVENT]->(Event {event_type, timestamp, ...})
 ```
 
-`to_time: null` means the entity is currently inside that container. When it moves, `to_time` is closed and a new `[:INSIDE]` is opened. This lets you query:
+`to_time: null` means the entity is currently inside that container. When it moves, `to_time` is closed and a new `[:INSIDE]` is opened. This makes it possible to answer:
 
 - Where is entity X right now?
 - Where was entity X at time T?
 - What is currently inside container Y?
 - Every container entity X has ever been in, in order?
+
+---
+
+## The Demo Episode
+
+The active episode is `ComplexEpisode` — a 27-step scripted scenario with two objects moving through multiple containers. The final state is intentionally deceptive.
+
+**Keys journey** (4 containers):
+```
+t=0.1 -> 0.4   table_01
+t=0.5 -> 1.4   counter_01
+t=1.6 -> 2.3   drawer_01
+t=2.5 -> NOW   counter_01   <-- ends back on the counter
+```
+
+**Card journey:**
+```
+t=0.1 -> 0.7   counter_01
+t=0.9 -> NOW   drawer_01    <-- ends in the drawer
+```
+
+A baseline LLM asked "what is in the drawer?" will say "the keys" because they were placed there more recently in the sequence. The knowledge graph answers correctly: only `card_001` is in the drawer. The keys are on the counter.
+
+**Questions the graph answers that the LLM gets wrong:**
+
+| Question | LLM (baseline) | Graph |
+|---|---|---|
+| Where are the keys? | drawer (wrong) | counter_01 |
+| What is in the drawer? | keys (wrong) | card_001 |
+| Where were the keys at t=2.0? | no idea | drawer_01 |
+| List every container the keys have been in | guesses | table, counter, drawer, counter |
 
 ---
 
@@ -61,7 +92,7 @@ Every entity becomes a node. Containment is a relationship with timestamps:
 | `query_api/` | WorldQueryAPI (in-memory) and GraphQueryAPI (Cypher-backed) |
 | `mcp_server/` | JSON-RPC 2.0 MCP server with 5 tools (3 core + 2 graph-native) |
 | `agent/` | OpenAI tool-calling agent with baseline vs grounded comparison modes |
-| `episodes/` | Scripted simulation scenarios |
+| `episodes/` | HiddenObjectEpisode (simple) and ComplexEpisode (active demo) |
 | `ui/` | Streamlit demo with frame playback, agent QA, and graph visualization |
 | `config/` | System-wide configuration dataclass |
 
@@ -84,11 +115,11 @@ Every entity becomes a node. Containment is a relationship with timestamps:
 | `find_entities_in_container` | Cypher only | What is currently inside a given container |
 | `get_containment_history` | Cypher only | Every container an entity has ever been in |
 
-The last two tools require Neo4j. They are only registered when `use_neo4j=True`.
+The last two tools require Neo4j and are only registered when `use_neo4j=True`.
 
 ---
 
-## Quickstart (in-memory mode)
+## Quickstart (in-memory, no Neo4j)
 
 ```bash
 python3 -m venv .venv
@@ -101,32 +132,25 @@ python main.py
 
 ## Quickstart with Neo4j
 
-### 1. Start Neo4j via Docker
+### 1. Install and start Neo4j
 
+**Via Homebrew (macOS):**
+```bash
+brew install neo4j
+neo4j start
+# On first run, change the default password at http://localhost:7474
+```
+
+**Via Docker:**
 ```bash
 docker run -p 7474:7474 -p 7687:7687 \
   -e NEO4J_AUTH=neo4j/testpassword \
   neo4j:5
 ```
 
-Neo4j Browser is available at http://localhost:7474 once it starts.
+Neo4j Browser: http://localhost:7474
 
-### 2. Configure credentials
-
-Edit `config/settings.py` or override when instantiating:
-
-```python
-from config.settings import ChronosGraphSettings
-
-settings = ChronosGraphSettings(
-    use_neo4j=True,
-    neo4j_uri="bolt://localhost:7687",
-    neo4j_user="neo4j",
-    neo4j_password="testpassword",
-)
-```
-
-### 3. Run the bootstrap with Neo4j
+### 2. Run the bootstrap with Neo4j
 
 ```python
 from graph.neo4j_graph import Neo4jGraph
@@ -141,9 +165,10 @@ api = GraphQueryAPI(graph)
 
 print(api.where_is("keys_001"))
 print(api.get_containment_history("keys_001"))
+print(api.whats_inside("drawer_01"))
 ```
 
-### 4. Browse the graph
+### 3. Browse the graph
 
 Open http://localhost:7474 and run:
 
@@ -166,33 +191,31 @@ streamlit run ui/app.py
 ./run_mcp_server.sh
 ```
 
-Set `use_neo4j=True` in settings before running to get the full 5-tool registry backed by Neo4j.
+Set `use_neo4j=True` in `config/settings.py` before running to get the full 5-tool registry backed by Neo4j.
 
 ---
 
-## Next Steps: Making the Knowledge Graph Shine
+## Next Steps
 
-The demo becomes genuinely compelling when the episode is long and complex enough that no language model could track the state from context alone.
+### 1. Wire the Streamlit UI to Neo4j
 
-### 1. Extend the episode with multi-step object movement
+The UI currently reads from `WorldStateEngine` (in-memory). Adding a toggle to switch its queries to `GraphQueryAPI` would let users see baseline vs graph-grounded answers side by side in the browser, with the graph visualization pulling live from Neo4j.
 
-The hidden object episode should move objects through multiple containers across many steps. After 20+ steps, "where are the keys?" becomes a hard question without memory. The answer requires tracing a chain of `[:INSIDE]` relationships across time in the graph.
+### 2. Build a temporal query benchmark
 
-### 2. Add distractor objects and events
+Write 10-20 ground-truth question-answer pairs derived from the episode's event log. Run both modes (baseline LLM and knowledge graph) against every question and score accuracy. This produces a concrete, reproducible number showing how much grounded memory improves factual recall.
 
-Introduce several objects that move independently. A baseline LLM will confuse them or hallucinate positions. The `find_entities_in_container` tool retrieves exact current contents from the graph by Cypher, which the LLM cannot fake.
+### 3. Persist state across episodes
 
-### 3. Add re-appearances and ambiguous visibility
+Neo4j is durable across restarts. Running multiple episodes accumulates knowledge. An agent in episode 5 can query what happened in episode 2. The storage layer interfaces are already defined — they just need to be called between runs rather than only during a single bootstrap.
 
-Cycle objects in and out of visibility. The LLM will confidently report last-known positions while the graph correctly tracks what actually changed after the last sighting.
+### 4. Add more objects and longer episodes
 
-### 4. Build a temporal query benchmark
+The deceptive quality of the demo grows with episode length and number of objects. Adding 3-4 more pickupable objects each moving through 3+ containers over 50+ steps makes the baseline LLM's failure rate approach 100% while the graph stays correct.
 
-Write 10-20 ground-truth question-answer pairs derived from the episode's event log. Score both modes against every question. This produces a concrete, reproducible demonstration that grounded graph memory improves factual recall.
+### 5. Connect beliefs and LLM reasoning
 
-### 5. Persist state across episodes
-
-Neo4j is now connected and durable. Running multiple episodes accumulates knowledge across all of them. An agent in episode 5 can query what happened in episode 2.
+The `BeliefManager` and `BeliefStore` interfaces are fully defined. Wiring an LLM to assert beliefs from observations ("the agent probably left the room") and storing them in Neo4j alongside events would add a higher-level reasoning layer on top of the raw event log.
 
 ---
 
@@ -201,5 +224,5 @@ Neo4j is now connected and durable. Running multiple episodes accumulates knowle
 - Python 3.10+
 - ai2thor
 - openai
-- neo4j>=5.0 (optional, for graph persistence)
-- Docker (optional, for running Neo4j locally)
+- neo4j>=5.0
+- Neo4j database (Homebrew or Docker)
