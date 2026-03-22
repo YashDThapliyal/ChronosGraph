@@ -156,19 +156,36 @@ def build_context(graph_api: GraphQueryAPI) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _chat(client: Any, **kwargs: Any) -> Any:
+    """Wrapper around client.chat.completions.create with exponential backoff."""
+    from openai import RateLimitError
+
+    delay = 5.0
+    for attempt in range(6):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except RateLimitError:
+            if attempt == 5:
+                raise
+            print(f"  [rate limit] waiting {delay:.0f}s before retry ({attempt + 1}/5)...")
+            time.sleep(delay)
+            delay = min(delay * 2, 60.0)
+
+
+# ---------------------------------------------------------------------------
 # Mode runners
 # ---------------------------------------------------------------------------
 
 def run_blind(client: Any, model: str, question: str) -> tuple[str, float]:
     """Ask the LLM with no world data whatsoever. Returns (answer, latency_s)."""
     t0 = time.perf_counter()
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": question},
-        ],
-    )
+    response = _chat(client, model=model, messages=[
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
+    ])
     return response.choices[0].message.content or "", time.perf_counter() - t0
 
 
@@ -180,13 +197,10 @@ def run_context(client: Any, model: str, context: str, question: str) -> tuple[s
         f"Question: {question}"
     )
     t0 = time.perf_counter()
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-    )
+    response = _chat(client, model=model, messages=[
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ])
     return response.choices[0].message.content or "", time.perf_counter() - t0
 
 
@@ -228,14 +242,10 @@ def judge(
         f"Ground truth: {ground_truth}\n"
         f"Candidate answer: {candidate}"
     )
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": JUDGE_SYSTEM},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
-    )
+    response = _chat(client, model=model, messages=[
+        {"role": "system", "content": JUDGE_SYSTEM},
+        {"role": "user", "content": prompt},
+    ], response_format={"type": "json_object"})
     raw = response.choices[0].message.content or "{}"
     try:
         parsed = json.loads(raw)
