@@ -76,15 +76,40 @@ def _container_before(api: "GraphQueryAPI", entity_id: str, target: str) -> str:
 # Helper — number of containers an entity passed through
 # ---------------------------------------------------------------------------
 
-def _ever_co_located(api: "GraphQueryAPI", eid_a: str, eid_b: str) -> str:
-    """Return the shared container if the two entities were ever in the same place."""
+def _all_co_located_containers(api: "GraphQueryAPI", eid_a: str, eid_b: str) -> list[str]:
+    """
+    Return all containers where eid_a and eid_b were present at the same time,
+    in chronological order. Uses midpoint sampling across both entities' periods.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+
     hist_a = api.get_containment_history(eid_a)
-    for entry in hist_a:
-        t_mid = entry["from_time"] + 0.05  # just inside the window
-        co = api.find_co_located(eid_a, t_mid)
-        if any(c["entity_id"] == eid_b for c in co):
-            return entry["container"]
-    return "never"
+    hist_b = api.get_containment_history(eid_b)
+
+    for entry_a in hist_a:
+        t_start_a = entry_a["from_time"]
+        t_end_a   = entry_a["to_time"]  # None = open
+
+        for entry_b in hist_b:
+            if entry_a["container"] != entry_b["container"]:
+                continue
+            t_start_b = entry_b["from_time"]
+            t_end_b   = entry_b["to_time"]  # None = open
+
+            # Compute overlap interval
+            overlap_start = max(t_start_a, t_start_b)
+            overlap_end_a = t_end_a if t_end_a is not None else float("inf")
+            overlap_end_b = t_end_b if t_end_b is not None else float("inf")
+            overlap_end   = min(overlap_end_a, overlap_end_b)
+
+            if overlap_start < overlap_end:
+                container = entry_a["container"]
+                if container not in seen:
+                    seen.add(container)
+                    found.append(container)
+
+    return found if found else ["never"]
 
 
 # ---------------------------------------------------------------------------
@@ -271,23 +296,16 @@ MEGA_QUESTIONS: list[Question] = [
     ),
     Question(
         id="m13",
-        question="Were keys_001 and card_001 ever in the same container at the same time? If yes, which container?",
+        question="List every container where keys_001 and card_001 were present at the same time.",
         category="co_location",
-        hint="both were in drawer_01 together briefly",
-        ground_truth_fn=lambda api: _ever_co_located(api, "keys_001", "card_001"),
+        hint="they overlapped in drawer_01 (keys in first, card entered while keys still there) and fridge_01",
+        ground_truth_fn=lambda api: _all_co_located_containers(api, "keys_001", "card_001"),
     ),
     Question(
         id="m14",
         question="Which objects have ever been inside fridge_01?",
         category="container_history",
-        hint="requires scanning containment history across all entities — card and keys both visited fridge",
-        ground_truth_fn=lambda api: sorted([
-            h["entity_id"]
-            for h in api._graph.run_cypher(
-                "MATCH (e:Entity)-[:INSIDE]->(c:Entity {entity_id: 'fridge_01'}) "
-                "RETURN DISTINCT e.entity_id AS entity_id ORDER BY e.entity_id",
-                {},
-            )
-        ]) or ["nothing"],
+        hint="requires the find_entities_ever_in_container tool — card, egg, and keys all visited fridge",
+        ground_truth_fn=lambda api: sorted([e["entity_id"] for e in api.who_ever_was_in("fridge_01")]) or ["nothing"],
     ),
 ]

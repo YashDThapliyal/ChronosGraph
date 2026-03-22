@@ -1,0 +1,344 @@
+{
+  "run_at": "2026-03-21T18:30:21.149331",
+  "episode": "mega",
+  "model": "gpt-4.1",
+  "judge_model": "gpt-4.1",
+  "results": [
+    {
+      "id": "m01",
+      "question": "Where are the keys (keys_001) right now?",
+      "category": "current_location",
+      "ground_truth": "fridge_01",
+      "blind": {
+        "answer": "The keys (keys_001) are on the table (table_01) right now.",
+        "correct": false,
+        "reasoning": "The candidate answer states the keys are on the table, whereas the ground truth states they are in the fridge, so the answer is incorrect.",
+        "latency_s": 1.156
+      },
+      "context": {
+        "answer": "The keys (keys_001) are in the fridge_01 right now.",
+        "correct": true,
+        "reasoning": "The candidate answer specifies the exact same location as the ground truth, fridge_01.",
+        "latency_s": 0.831
+      },
+      "graph": {
+        "answer": "The keys (keys_001) are in the refrigerator (fridge_01) right now.",
+        "correct": true,
+        "reasoning": "The candidate answer correctly states that the keys (keys_001) are in the refrigerator (fridge_01), which matches the ground truth exactly.",
+        "latency_s": 1.535
+      }
+    },
+    {
+      "id": "m02",
+      "question": "Where is card_001 right now?",
+      "category": "current_location",
+      "ground_truth": "counter_01",
+      "blind": {
+        "answer": "card_001 is on table_01 right now.",
+        "correct": false,
+        "reasoning": "The candidate answer states card_001 is on table_01, whereas the ground truth is counter_01; these are different locations.",
+        "latency_s": 0.611
+      },
+      "context": {
+        "answer": "card_001 is on counter_01.",
+        "correct": true,
+        "reasoning": "The candidate answer matches the ground truth location for card_001, indicating correctness.",
+        "latency_s": 0.684
+      },
+      "graph": {
+        "answer": "card_001 is currently on the kitchen counter (counter_01).",
+        "correct": true,
+        "reasoning": "The candidate correctly identifies that card_001 is on counter_01, matching the ground truth.",
+        "latency_s": 1.465
+      }
+    },
+    {
+      "id": "m03",
+      "question": "What objects are currently inside drawer_01?",
+      "category": "container_contents",
+      "ground_truth": "mug_001, spatula_001",
+      "blind": {
+        "answer": "keys_001, card_001",
+        "correct": false,
+        "reasoning": "The candidate answer lists objects (keys_001, card_001) that are not in the ground truth, and does not include mug_001 or spatula_001.",
+        "latency_s": 0.462
+      },
+      "context": {
+        "answer": "mug_001, spatula_001",
+        "correct": true,
+        "reasoning": "The candidate answer lists exactly the same objects as the ground truth, with no omissions or additions.",
+        "latency_s": 0.718
+      },
+      "graph": {
+        "answer": "mug_001, spatula_001",
+        "correct": true,
+        "reasoning": "The candidate answer lists exactly the same objects as the ground truth without any omissions or additions.",
+        "latency_s": 1.339
+      }
+    },
+    {
+      "id": "m04",
+      "question": "What objects are currently inside fridge_01?",
+      "category": "container_contents",
+      "ground_truth": "egg_02_04_+00_81_+01_24, keys_001",
+      "blind": {
+        "answer": "I do not have information about any objects currently inside fridge_01.",
+        "correct": false,
+        "reasoning": "The candidate answer does not list the required objects, so it is incorrect.",
+        "latency_s": 0.532
+      },
+      "context": {
+        "answer": "egg_02_04_+00_81_+01_24, keys_001",
+        "correct": true,
+        "reasoning": "The candidate answer lists exactly the same objects as the ground truth, with no extra or missing items.",
+        "latency_s": 1.343
+      },
+      "graph": {
+        "answer": "egg_02_04_+00_81_+01_24, keys_001",
+        "correct": true,
+        "reasoning": "The candidate answer lists exactly the same objects as the ground truth without adding or omitting any items.",
+        "latency_s": 1.916
+      }
+    },
+    {
+      "id": "m05",
+      "question": "What objects are currently on counter_01?",
+      "category": "container_contents",
+      "ground_truth": "book_+00_15_+01_10_+00_62, bread_00_52_+01_17_00_03, card_001, knife_001, table_01, tomato_00_39_+01_14_00_81",
+      "blind": {
+        "answer": "Currently, keys_001 and card_001 are on counter_01.",
+        "correct": false,
+        "reasoning": "The candidate answer lists only keys_001 and card_001, missing several objects from the ground truth, so it is a subset and therefore incorrect.",
+        "latency_s": 0.917
+      },
+      "context": {
+        "answer": "book_+00_15_+01_10_+00_62, bread_00_52_+01_17_00_03, card_001, knife_001, table_01, tomato_00_39_+01_14_00_81",
+        "correct": true,
+        "reasoning": "The candidate answer includes all and only the items listed in the ground truth.",
+        "latency_s": 1.385
+      },
+      "graph": {
+        "answer": "book_+00_15_+01_10_+00_62, bread_00_52_+01_17_00_03, card_001, knife_001, table_01, tomato_00_39_+01_14_00_81",
+        "correct": true,
+        "reasoning": "The candidate answer exactly matches the list of objects on counter_01 in the ground truth.",
+        "latency_s": 2.183
+      }
+    },
+    {
+      "id": "m06",
+      "question": "Where was knife_001 at t=2.5?",
+      "category": "historical_location",
+      "ground_truth": "drawer_01",
+      "blind": {
+        "answer": "I have no information about an entity named knife_001 in this episode.",
+        "correct": false,
+        "reasoning": "The candidate fails to provide the required location 'drawer_01' and instead claims a lack of information, which does not match the ground truth.",
+        "latency_s": 0.674
+      },
+      "context": {
+        "answer": "At t=2.5, knife_001 was in drawer_01.",
+        "correct": true,
+        "reasoning": "The candidate answer exactly matches the ground truth location for knife_001 at t=2.5.",
+        "latency_s": 0.62
+      },
+      "graph": {
+        "answer": "At t=2.5, knife_001 was in drawer_01.",
+        "correct": true,
+        "reasoning": "The candidate answer matches the ground truth by stating knife_001 was in drawer_01 at t=2.5.",
+        "latency_s": 1.327
+      }
+    },
+    {
+      "id": "m07",
+      "question": "What was inside drawer_01 at t=1.5?",
+      "category": "historical_contents",
+      "ground_truth": "card_001, keys_001",
+      "blind": {
+        "answer": "At t=1.5, keys_001, card_001 were inside drawer_01.",
+        "correct": true,
+        "reasoning": "The candidate answer lists exactly the same items as the ground truth, just in a different order.",
+        "latency_s": 0.712
+      },
+      "context": {
+        "answer": "At t=1.5, drawer_01 contained keys_001.",
+        "correct": false,
+        "reasoning": "The candidate answer lists only keys_001, missing card_001, so it is a subset and therefore incorrect.",
+        "latency_s": 0.522
+      },
+      "graph": {
+        "answer": "At t=1.5, drawer_01 contained card_001, keys_001.",
+        "correct": true,
+        "reasoning": "The candidate answer lists exactly the correct items, card_001 and keys_001, matching the ground truth.",
+        "latency_s": 1.575
+      }
+    },
+    {
+      "id": "m08",
+      "question": "What was inside fridge_01 at t=3.5?",
+      "category": "historical_contents",
+      "ground_truth": "card_001, egg_02_04_+00_81_+01_24",
+      "blind": {
+        "answer": "I have no information about the contents of fridge_01 at t=3.5.",
+        "correct": false,
+        "reasoning": "The candidate does not provide the required items (card_001, egg_02_04_+00_81_+01_24) and fails to answer the question.",
+        "latency_s": 0.651
+      },
+      "context": {
+        "answer": "At t=3.5, fridge_01 contained egg_02_04_+00_81_+01_24.",
+        "correct": false,
+        "reasoning": "The candidate answer only lists egg_02_04_+00_81_+01_24, omitting card_001, so it is a subset of the correct items and therefore incorrect.",
+        "latency_s": 0.764
+      },
+      "graph": {
+        "answer": "card_001, egg_02_04_+00_81_+01_24",
+        "correct": true,
+        "reasoning": "The candidate answer matches exactly the ground truth list of items, with neither omissions nor extra items.",
+        "latency_s": 2.091
+      }
+    },
+    {
+      "id": "m09",
+      "question": "List every container keys_001 has been in, in order.",
+      "category": "full_history",
+      "ground_truth": "table_01, drawer_01, counter_01, fridge_01",
+      "blind": {
+        "answer": "drawer_01",
+        "correct": false,
+        "reasoning": "The candidate answer only lists 'drawer_01' and omits the other containers; it is a subset and therefore incorrect.",
+        "latency_s": 0.507
+      },
+      "context": {
+        "answer": "table_01, drawer_01, counter_01, fridge_01",
+        "correct": true,
+        "reasoning": "The candidate answer lists exactly the same containers in the same order as the ground truth.",
+        "latency_s": 0.686
+      },
+      "graph": {
+        "answer": "table_01, drawer_01, counter_01, fridge_01",
+        "correct": true,
+        "reasoning": "The candidate answer lists all and only the same containers as the ground truth in the correct order.",
+        "latency_s": 1.373
+      }
+    },
+    {
+      "id": "m10",
+      "question": "List every container card_001 has been in, in order.",
+      "category": "full_history",
+      "ground_truth": "counter_01, drawer_01, fridge_01, counter_01",
+      "blind": {
+        "answer": "drawer_01",
+        "correct": false,
+        "reasoning": "The candidate answer only lists 'drawer_01', which is a subset of the correct ordered list of containers, so it is incorrect.",
+        "latency_s": 0.708
+      },
+      "context": {
+        "answer": "counter_01, drawer_01, fridge_01, counter_01",
+        "correct": true,
+        "reasoning": "The candidate answer lists all the containers card_001 has been in, in the correct order.",
+        "latency_s": 0.558
+      },
+      "graph": {
+        "answer": "counter_01, drawer_01, fridge_01, counter_01",
+        "correct": true,
+        "reasoning": "The candidate answer lists all the containers in the correct order as given in the ground truth.",
+        "latency_s": 2.099
+      }
+    },
+    {
+      "id": "m11",
+      "question": "List every container knife_001 has been in, in order.",
+      "category": "full_history",
+      "ground_truth": "counter_01, drawer_01, counter_01",
+      "blind": {
+        "answer": "knife_001 is not mentioned in the provided context, so I do not have information about its container history.",
+        "correct": false,
+        "reasoning": "The candidate fails to list the containers in order as required; it does not attempt an answer.",
+        "latency_s": 0.903
+      },
+      "context": {
+        "answer": "counter_01, drawer_01, counter_01",
+        "correct": true,
+        "reasoning": "The candidate answer lists all containers that knife_001 has been in, in the correct order, matching the ground truth exactly.",
+        "latency_s": 0.524
+      },
+      "graph": {
+        "answer": "counter_01, drawer_01, counter_01",
+        "correct": true,
+        "reasoning": "The candidate answer lists all containers in the correct order matching the ground truth exactly.",
+        "latency_s": 1.691
+      }
+    },
+    {
+      "id": "m12",
+      "question": "How many different containers has keys_001 been in total?",
+      "category": "aggregation",
+      "ground_truth": "4",
+      "blind": {
+        "answer": "keys_001 has been in 2 different containers: drawer_01 and counter_01.",
+        "correct": false,
+        "reasoning": "The candidate answer lists only 2 containers, but the correct number is 4, so it is a subset and thus incorrect.",
+        "latency_s": 0.627
+      },
+      "context": {
+        "answer": "keys_001 has been in 4 different containers in total: table_01, drawer_01, counter_01, fridge_01.",
+        "correct": true,
+        "reasoning": "The candidate correctly states that keys_001 has been in 4 different containers, matching the ground truth and listing the exact containers.",
+        "latency_s": 0.756
+      },
+      "graph": {
+        "answer": "keys_001 has been in 4 different containers in total.",
+        "correct": true,
+        "reasoning": "The candidate matches the ground truth count of 4 containers exactly.",
+        "latency_s": 1.464
+      }
+    },
+    {
+      "id": "m13",
+      "question": "Were keys_001 and card_001 ever in the same container at the same time? If yes, which container?",
+      "category": "co_location",
+      "ground_truth": "fridge_01",
+      "blind": {
+        "answer": "No, keys_001 and card_001 were never in the same container at the same time.",
+        "correct": false,
+        "reasoning": "The ground truth states that both keys_001 and card_001 were in fridge_01 at the same time, so the candidate answer is incorrect.",
+        "latency_s": 0.525
+      },
+      "context": {
+        "answer": "No, keys_001 and card_001 were never in the same container at the same time.",
+        "correct": false,
+        "reasoning": "The ground truth states that keys_001 and card_001 were both in fridge_01 at the same time, while the candidate answer denies this.",
+        "latency_s": 0.523
+      },
+      "graph": {
+        "answer": "Yes, keys_001 and card_001 were in the same container at the same time in drawer_01.",
+        "correct": false,
+        "reasoning": "The candidate answer names drawer_01, but the ground truth specifies fridge_01 as the container where both items were together.",
+        "latency_s": 2.29
+      }
+    },
+    {
+      "id": "m14",
+      "question": "Which objects have ever been inside fridge_01?",
+      "category": "container_history",
+      "ground_truth": "card_001, egg_02_04_+00_81_+01_24, keys_001",
+      "blind": {
+        "answer": "I do not have information about any objects being inside fridge_01.",
+        "correct": false,
+        "reasoning": "The candidate does not list any of the objects that have been inside fridge_01, which are card_001, egg_02_04_+00_81_+01_24, and keys_001.",
+        "latency_s": 0.589
+      },
+      "context": {
+        "answer": "keys_001, card_001",
+        "correct": false,
+        "reasoning": "The candidate answer is missing 'egg_02_04_+00_81_+01_24', so it is a subset and therefore incorrect.",
+        "latency_s": 0.7
+      },
+      "graph": {
+        "answer": "egg_02_04_+00_81_+01_24, keys_001",
+        "correct": false,
+        "reasoning": "The candidate answer omitted card_001, which is required by the ground truth.",
+        "latency_s": 1.913
+      }
+    }
+  ]
+}

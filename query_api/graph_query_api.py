@@ -115,6 +115,19 @@ class GraphQueryAPI:
             for row in rows
         ]
 
+    def who_ever_was_in(self, container_id: str) -> list[dict[str, Any]]:
+        """Return all entities that have ever had an INSIDE relationship to this container."""
+        rows = self._graph.run_cypher(
+            """
+            MATCH (e:Entity)-[:INSIDE]->(c:Entity {entity_id: $container_id})
+            RETURN DISTINCT e.entity_id AS entity_id,
+                            e.entity_type AS entity_type
+            ORDER BY e.entity_id
+            """,
+            {"container_id": container_id},
+        )
+        return [{"entity_id": r["entity_id"], "entity_type": r["entity_type"]} for r in rows]
+
     def list_entities(self, entity_type: str | None = None) -> list[dict[str, Any]]:
         """Return all tracked entity IDs, optionally filtered by type."""
         if entity_type:

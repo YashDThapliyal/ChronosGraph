@@ -265,6 +265,49 @@ def build_tool_registry(
             handler=get_containment_history,
         )
 
+        # ---- Historical container membership ----
+
+        def find_entities_ever_in_container(arguments: dict[str, Any]) -> dict[str, Any]:
+            container_id = _require_string(arguments, "container_id")
+            entities = graph_api.who_ever_was_in(container_id)
+            return {"container_id": container_id, "entities": entities}
+
+        registry["find_entities_ever_in_container"] = ToolDefinition(
+            name="find_entities_ever_in_container",
+            description=(
+                "Find ALL entities that have EVER been inside a container — not just current "
+                "occupants. Use this to answer 'what objects have ever been in the fridge?' "
+                "regardless of whether they are still there."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"container_id": {"type": "string"}},
+                "required": ["container_id"],
+                "additionalProperties": False,
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "container_id": {"type": "string"},
+                    "entities": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "entity_id":   {"type": "string"},
+                                "entity_type": {"type": "string"},
+                            },
+                            "required": ["entity_id", "entity_type"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["container_id", "entities"],
+                "additionalProperties": False,
+            },
+            handler=find_entities_ever_in_container,
+        )
+
         # ---- Discovery tools ----
 
         def list_entities(arguments: dict[str, Any]) -> dict[str, Any]:

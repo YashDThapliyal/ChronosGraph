@@ -89,22 +89,21 @@ NEO4J_PASSWORD = "testpassword"
 # Context builder (for context-stuffed mode)
 # ---------------------------------------------------------------------------
 
-def build_context(graph_api: GraphQueryAPI, mega: bool = False) -> str:
+def build_context(graph_api: GraphQueryAPI) -> str:
     """
     Produce a complete text dump of the world state from Neo4j.
 
-    Includes: current location of every tracked entity, full containment
-    history of each entity, current container contents, and full event log.
-    With mega=True, covers all 6 objects and 3 containers.
+    Dynamically discovers all tracked entities and containers from the graph
+    so the context is complete regardless of episode size.
     """
     lines: list[str] = ["=== WORLD STATE DUMP ===\n"]
 
-    if mega:
-        moveable = ["keys_001", "card_001", "knife_001", "mug_001", "spatula_001"]
-        containers = ["drawer_01", "counter_01", "fridge_01"]
-    else:
-        moveable = ["keys_001", "card_001"]
-        containers = ["drawer_01", "counter_01", "table_01"]
+    # Discover all tracked entities and containers from the graph
+    all_entities   = [e["entity_id"] for e in graph_api.list_entities()]
+    all_containers = graph_api.list_containers()
+    # Moveable objects = entities that have containment history (have been inside something)
+    moveable   = [e for e in all_entities if e not in all_containers]
+    containers = all_containers
 
     # Current location of each moveable object
     lines.append("--- Current Locations ---")
@@ -364,7 +363,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # ---- Build context string (used by context-stuffed mode) ----
     print("Building world context dump ...", flush=True)
-    context = build_context(graph_api, mega=args.mega)
+    context = build_context(graph_api)
 
     questions = MEGA_QUESTIONS if args.mega else QUESTIONS
     print(f"\nRunning {len(questions)} questions across 3 modes ({episode_label} episode) ...\n")
