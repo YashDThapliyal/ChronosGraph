@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from datetime import datetime
 from typing import Any
 
@@ -132,9 +133,9 @@ def build_context(graph_api: GraphQueryAPI) -> str:
 # Mode runners
 # ---------------------------------------------------------------------------
 
-def run_blind(client: Any, model: str, question: str) -> str:
-    """Ask the LLM with no world data whatsoever."""
-    from openai import OpenAI  # type: ignore[import]
+def run_blind(client: Any, model: str, question: str) -> tuple[str, float]:
+    """Ask the LLM with no world data whatsoever. Returns (answer, latency_s)."""
+    t0 = time.perf_counter()
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -142,16 +143,17 @@ def run_blind(client: Any, model: str, question: str) -> str:
             {"role": "user", "content": question},
         ],
     )
-    return response.choices[0].message.content or ""
+    return response.choices[0].message.content or "", time.perf_counter() - t0
 
 
-def run_context(client: Any, model: str, context: str, question: str) -> str:
-    """Ask the LLM with the full world state dump in the prompt."""
+def run_context(client: Any, model: str, context: str, question: str) -> tuple[str, float]:
+    """Ask the LLM with the full world state dump in the prompt. Returns (answer, latency_s)."""
     prompt = (
         f"{context}\n\n"
         "Use ONLY the information above to answer the following question.\n\n"
         f"Question: {question}"
     )
+    t0 = time.perf_counter()
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -159,13 +161,14 @@ def run_context(client: Any, model: str, context: str, question: str) -> str:
             {"role": "user", "content": prompt},
         ],
     )
-    return response.choices[0].message.content or ""
+    return response.choices[0].message.content or "", time.perf_counter() - t0
 
 
-def run_graph(agent: OpenAIToolAgent, question: str) -> str:
-    """Ask the LLM using MCP tools backed by Neo4j."""
+def run_graph(agent: OpenAIToolAgent, question: str) -> tuple[str, float]:
+    """Ask the LLM using MCP tools backed by Neo4j. Returns (answer, latency_s)."""
+    t0 = time.perf_counter()
     response = agent.run_with_tools(question)
-    return response.answer
+    return response.answer, time.perf_counter() - t0
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +228,8 @@ def _truncate(s: str, n: int = 55) -> str:
 
 
 def print_results_table(results: list[dict[str, Any]]) -> None:
-    col_w = [6, 40, 30, 8, 8, 8]
+    # Columns: ID, Question, Ground Truth, Blind (pass+ms), Context (pass+ms), Graph (pass+ms)
+    col_w = [6, 38, 28, 14, 14, 14]
     header = ["ID", "Question", "Ground Truth", "Blind", "Context", "Graph"]
     sep = "  ".join("-" * w for w in col_w)
 
@@ -233,7 +237,8 @@ def print_results_table(results: list[dict[str, Any]]) -> None:
     print("  ".join(h.ljust(w) for h, w in zip(header, col_w)))
     print(sep)
 
-    totals = {"blind": 0, "context": 0, "graph": 0}
+    totals   = {"blind": 0, "context": 0, "graph": 0}
+    lat_sums = {"blind": 0.0, "context": 0.0, "graph": 0.0}
 
     for r in results:
         blind_ok   = r["blind"]["correct"]
@@ -244,25 +249,37 @@ def print_results_table(results: list[dict[str, Any]]) -> None:
         totals["context"] += int(context_ok)
         totals["graph"]   += int(graph_ok)
 
+        lat_sums["blind"]   += r["blind"]["latency_s"]
+        lat_sums["context"] += r["context"]["latency_s"]
+        lat_sums["graph"]   += r["graph"]["latency_s"]
+
+        def cell(ok: bool, latency: float) -> str:
+            mark = "PASS" if ok else "FAIL"
+            return f"{mark} ({latency * 1000:.0f}ms)"
+
         row = [
             r["id"],
             _truncate(r["question"], col_w[1]),
             _truncate(r["ground_truth"], col_w[2]),
-            "PASS" if blind_ok   else "FAIL",
-            "PASS" if context_ok else "FAIL",
-            "PASS" if graph_ok   else "FAIL",
+            cell(blind_ok,   r["blind"]["latency_s"]),
+            cell(context_ok, r["context"]["latency_s"]),
+            cell(graph_ok,   r["graph"]["latency_s"]),
         ]
         print("  ".join(v.ljust(w) for v, w in zip(row, col_w)))
 
     print(sep)
     n = len(results)
+
+    def avg_ms(key: str) -> str:
+        return f"avg {lat_sums[key] / n * 1000:.0f}ms"
+
     summary = [
         "TOTAL",
         "",
         "",
-        f"{totals['blind']}/{n}",
-        f"{totals['context']}/{n}",
-        f"{totals['graph']}/{n}",
+        f"{totals['blind']}/{n}  {avg_ms('blind')}",
+        f"{totals['context']}/{n}  {avg_ms('context')}",
+        f"{totals['graph']}/{n}  {avg_ms('graph')}",
     ]
     print("  ".join(v.ljust(w) for v, w in zip(summary, col_w)))
     print()
@@ -297,6 +314,10 @@ def main(argv: list[str] | None = None) -> None:
     neo4j_graph = Neo4jGraph(NEO4J_URI, NEO4J_USER, args.neo4j_password)
     neo4j_graph.connect()
 
+    # Clear any stale data from previous runs so INSIDE relationships don't accumulate
+    print("Clearing previous graph data ...", flush=True)
+    neo4j_graph.run_cypher("MATCH (n) DETACH DELETE n", {})
+
     print("Bootstrapping world (runs AI2-THOR episode) ...", flush=True)
     result = bootstrap_world(neo4j_graph=neo4j_graph)
     world_engine: WorldStateEngine = result if isinstance(result, WorldStateEngine) else result[0]
@@ -322,22 +343,22 @@ def main(argv: list[str] | None = None) -> None:
         print(f"       ground_truth = {ground_truth}")
 
         # -- Blind --
-        blind_answer = run_blind(client, args.model, q.question)
+        blind_answer, blind_latency = run_blind(client, args.model, q.question)
         blind_score  = judge(client, args.judge_model, q.question, ground_truth, blind_answer)
         blind_mark   = "PASS" if blind_score["correct"] else "FAIL"
-        print(f"       blind:   {blind_mark}  | {_truncate(blind_answer, 60)}")
+        print(f"       blind:   {blind_mark} ({blind_latency*1000:.0f}ms)  | {_truncate(blind_answer, 50)}")
 
         # -- Context --
-        ctx_answer = run_context(client, args.model, context, q.question)
+        ctx_answer, ctx_latency = run_context(client, args.model, context, q.question)
         ctx_score  = judge(client, args.judge_model, q.question, ground_truth, ctx_answer)
         ctx_mark   = "PASS" if ctx_score["correct"] else "FAIL"
-        print(f"       context: {ctx_mark}  | {_truncate(ctx_answer, 60)}")
+        print(f"       context: {ctx_mark} ({ctx_latency*1000:.0f}ms)  | {_truncate(ctx_answer, 50)}")
 
         # -- Graph --
-        graph_answer = run_graph(graph_agent, q.question)
+        graph_answer, graph_latency = run_graph(graph_agent, q.question)
         graph_score  = judge(client, args.judge_model, q.question, ground_truth, graph_answer)
         graph_mark   = "PASS" if graph_score["correct"] else "FAIL"
-        print(f"       graph:   {graph_mark}  | {_truncate(graph_answer, 60)}")
+        print(f"       graph:   {graph_mark} ({graph_latency*1000:.0f}ms)  | {_truncate(graph_answer, 50)}")
         print()
 
         all_results.append(
@@ -350,16 +371,19 @@ def main(argv: list[str] | None = None) -> None:
                     "answer":    blind_answer,
                     "correct":   blind_score["correct"],
                     "reasoning": blind_score.get("reasoning", ""),
+                    "latency_s": round(blind_latency, 3),
                 },
                 "context": {
                     "answer":    ctx_answer,
                     "correct":   ctx_score["correct"],
                     "reasoning": ctx_score.get("reasoning", ""),
+                    "latency_s": round(ctx_latency, 3),
                 },
                 "graph": {
                     "answer":    graph_answer,
                     "correct":   graph_score["correct"],
                     "reasoning": graph_score.get("reasoning", ""),
+                    "latency_s": round(graph_latency, 3),
                 },
             }
         )
