@@ -102,44 +102,35 @@ At small scale, context stuffing ties the graph at 10/10. The only information m
 
 | ID  | Question | Category | Blind | Context | Graph |
 |-----|----------|----------|-------|---------|-------|
-| m01 | Where are keys_001 right now? | current_location | FAIL | PASS | PASS |
-| m02 | Where is card_001 right now? | current_location | FAIL | PASS | PASS |
-| m03 | What is currently in drawer_01? | container_contents | FAIL | PASS | PASS |
-| m04 | What is currently in fridge_01? | container_contents | FAIL | PASS | PASS |
-| m05 | What is on counter_01 right now? | container_contents | FAIL | PASS | PASS |
-| m06 | Where was knife_001 at t=2.5? | historical_location | FAIL | PASS | PASS |
-| m07 | What was in drawer_01 at t=1.5? | historical_contents | PASS | **FAIL** | PASS |
-| m08 | What was in fridge_01 at t=3.5? | historical_contents | FAIL | **FAIL** | PASS |
-| m09 | List every container keys_001 has been in | full_history | FAIL | PASS | PASS |
-| m10 | List every container card_001 has been in | full_history | FAIL | PASS | PASS |
-| m11 | List every container knife_001 has been in | full_history | FAIL | PASS | PASS |
-| m12 | How many containers has keys_001 been in? | aggregation | FAIL | PASS | PASS |
-| m13 | Which containers were keys_001 and card_001 in together? | co_location | FAIL | FAIL | FAIL* |
-| m14 | Which objects have ever been in fridge_01? | container_history | FAIL | FAIL | FAIL* |
-| | **TOTAL** | | **1/14** | **10/14** | **12/14** |
-| | **Avg latency** | | **684ms** | **758ms** | **1733ms** |
-
-*m13 and m14 failures are explained below.
+| m01 | Where are keys_001 right now? | current_location | FAIL (955ms) | PASS (542ms) | PASS (5000ms) |
+| m02 | Where is card_001 right now? | current_location | FAIL (575ms) | PASS (776ms) | PASS (1842ms) |
+| m03 | What is currently in drawer_01? | container_contents | FAIL (437ms) | PASS (777ms) | PASS (4212ms) |
+| m04 | What is currently in fridge_01? | container_contents | FAIL (542ms) | PASS (815ms) | PASS (6384ms) |
+| m05 | What is on counter_01 right now? | container_contents | FAIL (552ms) | PASS (922ms) | PASS (7316ms) |
+| m06 | Where was knife_001 at t=2.5? | historical_location | FAIL (655ms) | PASS (2024ms) | PASS (5569ms) |
+| m07 | What was in drawer_01 at t=1.5? | historical_contents | PASS (596ms) | PASS (542ms) | PASS (6069ms) |
+| m08 | What was in fridge_01 at t=3.5? | historical_contents | FAIL (721ms) | **FAIL (880ms)** | PASS (8892ms) |
+| m09 | List every container keys_001 has been in | full_history | FAIL (547ms) | PASS (500ms) | PASS (8811ms) |
+| m10 | List every container card_001 has been in | full_history | FAIL (417ms) | PASS (3657ms) | PASS (9557ms) |
+| m11 | List every container knife_001 has been in | full_history | FAIL (559ms) | PASS (2322ms) | PASS (7559ms) |
+| m12 | How many containers has keys_001 been in? | aggregation | FAIL (711ms) | PASS (5478ms) | PASS (7814ms) |
+| m13 | Which containers were keys_001 and card_001 in together? | co_location | FAIL (492ms) | **FAIL (4670ms)** | **FAIL (8153ms)** |
+| m14 | Which objects have ever been in fridge_01? | container_history | FAIL (541ms) | PASS (3824ms) | PASS (7862ms) |
+| | **TOTAL** | | **1/14** avg 593ms | **12/14** avg 1981ms | **13/14** avg 6789ms |
 
 **Key findings:**
 
-**Blind collapses at scale (1/14).** With 6 objects and 61 steps of movement, the LLM can answer almost nothing. For objects it was not told about (knife, mug, spatula), it says "I have no information." For everything else it hallucinates the most recently mentioned container. The deception is complete.
+**Blind collapses at scale (1/14).** With 6 objects and 61 steps of movement, the LLM answers almost nothing correctly. For objects it has no training data for (knife, mug, spatula) it says "I have no information." For everything else it hallucinates the most recently mentioned container. m07 is the only pass — a lucky guess that both keys and card were in the drawer at t=1.5.
 
-**Context stuffing fails where graph succeeds (m07, m08).** This is the critical result. The context dump contains all the information needed to answer correctly, but the LLM fails on temporal overlap questions:
+**Context stuffing fails on temporal overlap (m08).** The context dump contains all the information needed to answer correctly, but the LLM fails when it must find all intervals that overlap a specific timestamp across multiple objects. For m08 (what was in fridge_01 at t=3.5?), the LLM found the egg (stationary, always in fridge) but missed that card's fridge window included t=3.5 — it can read the intervals as text but cannot reliably compute "which of these ranges overlap this point" when multiple objects are involved.
 
-- **m07**: At t=1.5, both keys AND card were in drawer_01. Keys entered first, card entered shortly after and was still there at t=1.5. The context LLM correctly found keys but missed card's overlapping presence — it cannot reliably compute "what intervals were simultaneously active across multiple objects" from a text dump.
-- **m08**: Card was in fridge at t=3.5 (it had been placed there and not yet removed). The LLM found the egg (always in fridge) but missed that card's fridge window included t=3.5.
+The graph agent passes m08 with a single Cypher query using exact range matching (`WHERE r.from_time <= $t AND (r.to_time IS NULL OR r.to_time > $t)`), which is unambiguous regardless of how many objects or events exist.
 
-The graph agent passes both by issuing one Cypher query with exact range matching (`WHERE r.from_time <= $t AND (r.to_time IS NULL OR r.to_time > $t)`), which is O(1) regardless of how many objects or events exist.
+**m13 (co-location) fails all three modes.** "Which containers were keys_001 and card_001 in at the same time?" requires computing the intersection of two sets of time intervals and finding which containers appear in both. Blind guesses one container. Context finds only fridge_01 (a subset). Graph returns drawer_01, counter_01, fridge_01 — counter_01 is incorrect (a hallucinated superset). This is the hardest query class: join reasoning over temporal intervals across two entities. It is the remaining unsolved case.
 
-**m13 and m14: tool gaps exposed at scale.**
+**Graph is 11x slower at scale (6789ms vs 593ms for blind, 1981ms for context).** Multi-object questions require 2–4 tool call round-trips each adding LLM latency. The trade-off is worth it at scale: graph stays precise where context degrades. At 2 objects both methods score equally; at 6 objects with complex temporal queries, graph (13/14) > context (12/14) > blind (1/14).
 
-- **m13 (co-location)**: The question asks for containers where two objects were present simultaneously. There was no dedicated tool for this — the agent was forced to compose `get_containment_history` calls and reason over intervals, which it did partially correctly (found drawer_01, which is a valid answer) but missed fridge_01. A `find_co_located` join tool has been added.
-- **m14 (historical container membership)**: "Which objects have ever been in fridge_01?" The agent called `find_entities_in_container` (current contents only) and missed card, which had been in fridge but left. A `find_entities_ever_in_container` tool has been added.
-
-**Graph is 2.5x slower at scale (1733ms vs 758ms average).** Multi-object questions require multiple tool call round-trips, and complex queries like m13 took 2.3 seconds. At current scale this is acceptable; the trade-off becomes strictly worth it at scale where context stuffing breaks on temporal overlap questions.
-
-**The inflection point:** At 2 objects, context = graph = 10/10. At 6 objects with complex temporal queries, graph (12/14) > context (10/14) > blind (1/14). As object count grows further, context accuracy continues to degrade while graph stays precise.
+**The inflection point:** At 2 objects, context = graph = 10/10. At 6 objects, graph outperforms context specifically on temporal overlap questions (m08) that require interval arithmetic the LLM cannot reliably perform over text. As object count grows, context accuracy will continue to degrade on these query types while graph stays exact.
 
 ---
 
@@ -284,16 +275,20 @@ Set `use_neo4j=True` in `config/settings.py` before running to get the full 6-to
 
 ### 1. Re-run the mega benchmark with the patched tools
 
-The m13 and m14 failures exposed two tool gaps that have now been fixed:
-- `find_entities_ever_in_container` answers "who has ever been in X" directly
-- `find_co_located` join semantics now correctly handle multi-container co-location
-- The context builder now discovers entities from the graph rather than a hardcoded list, so static objects (like an egg that was always in the fridge) are included
+The benchmark has been re-run with the patched 8-tool set. Results: graph 13/14, context 12/14, blind 1/14.
 
-A re-run should bring graph accuracy to 13-14/14.
+- `find_entities_ever_in_container` (m14) is now answered correctly by all modes with tools
+- m13 (co-location interval join) remains the one unsolved case across all three modes — see next step
 
-### 2. Find the context-stuffing breakpoint
+### 2. Solve co-location interval joins (m13)
 
-Context scored 10/14 at 6 objects. It already fails on temporal overlap questions (m07, m08) where the LLM must track simultaneous intervals across multiple objects. The next experiment is to add 10-15 objects and measure at what object count context accuracy drops below 50%, while graph stays above 90%.
+"Which containers were X and Y in at the same time?" requires computing the intersection of two entity's containment histories and finding containers where the intervals overlap. The current agent composes `get_containment_history` calls and reasons over the result, but adds a spurious container. Options:
+- Add a dedicated `find_co_located_containers(entity_a, entity_b)` Cypher tool that does the interval join in the database
+- Improve the system prompt to instruct the agent how to compute interval overlaps explicitly
+
+### 3. Find the context-stuffing breakpoint
+
+Context scored 12/14 at 6 objects but already fails on temporal overlap questions (m08) where the LLM must compute which time intervals are active at a given point across multiple objects. The next experiment is to increase to 10–15 objects and measure at what scale context accuracy drops below 50%, while graph stays above 90%.
 
 ### 3. Persist state across episodes
 
@@ -305,7 +300,7 @@ The UI currently reads from `WorldStateEngine` (in-memory). Adding a toggle to s
 
 ### 5. Reduce graph latency
 
-The graph agent averages 1.7s per question versus 0.76s for context, primarily because multi-step questions require 2-3 tool call round-trips. Potential reductions:
+The graph agent averages 6.8s per question versus 2.0s for context at MegaEpisode scale, primarily because multi-step questions require 2–4 tool call round-trips each involving an LLM call. Potential reductions:
 - Parallel tool calls (batch multiple `get_parent_at` calls in one LLM turn)
 - A `summarize_world_state()` tool that returns a compact snapshot for simple questions
 - Pre-computing common query patterns as stored Cypher procedures
