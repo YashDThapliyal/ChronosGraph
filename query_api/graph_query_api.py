@@ -1,9 +1,22 @@
 """
-Cypher-backed query adapter for MCP tools.
+Cypher-backed query adapter.
 
-Provides the same method signatures as WorldQueryAPI (where_is, where_was,
-what_happened) so MCP tools can call either transparently, plus two
-graph-native methods that have no WorldQueryAPI equivalent.
+Method naming mirrors the tool registry in mcp_server/tools.py.
+Each method is a direct mapping to one Cypher pattern — no business logic.
+
+Forward traversal (entity -> container):
+    where_is(entity_id)                  current container
+    where_was(entity_id, timestamp)      container at time T
+    get_containment_history(entity_id)   full ordered chain
+
+Reverse traversal (container -> entity):
+    whats_inside(container_id)           current occupants
+    whats_inside_at(container_id, t)     occupants at time T
+    who_ever_was_in(container_id)        all-time members
+
+Discovery:
+    list_entities(entity_type)           enumerate tracked entities
+    list_containers()                    enumerate known containers
 """
 
 from __future__ import annotations
@@ -18,11 +31,11 @@ class GraphQueryAPI:
         self._graph = graph
 
     # ------------------------------------------------------------------ #
-    # WorldQueryAPI-compatible methods
+    # Forward traversal — entity -> container
     # ------------------------------------------------------------------ #
 
     def where_is(self, entity_id: str) -> dict[str, Any]:
-        """Return the current container of an entity."""
+        """Current container of an entity (to_time IS NULL)."""
         rows = self._graph.run_cypher(
             """
             MATCH (e:Entity {entity_id: $entity_id})
@@ -36,7 +49,7 @@ class GraphQueryAPI:
         return {"entity_id": entity_id, "parent": parent}
 
     def where_was(self, entity_id: str, timestamp: float) -> dict[str, Any]:
-        """Return the container of an entity at a given timestamp."""
+        """Container of an entity at a given timestamp."""
         rows = self._graph.run_cypher(
             """
             MATCH (e:Entity {entity_id: $entity_id})
@@ -52,24 +65,33 @@ class GraphQueryAPI:
         parent = rows[0]["parent"] if rows else None
         return {"entity_id": entity_id, "timestamp": timestamp, "parent": parent}
 
-    def what_happened(self, entity_id: str) -> list[dict[str, Any]]:
-        """Return all events for an entity, ordered by timestamp."""
+    def get_containment_history(self, entity_id: str) -> list[dict[str, Any]]:
+        """Every container an entity has been inside, ordered by from_time."""
         rows = self._graph.run_cypher(
             """
-            MATCH (e:Entity {entity_id: $entity_id})-[:HAD_EVENT]->(ev:Event)
-            RETURN properties(ev) AS ev
-            ORDER BY ev.timestamp ASC
+            MATCH (e:Entity {entity_id: $entity_id})-[r:INSIDE]->(c:Entity)
+            RETURN c.entity_id AS container,
+                   r.from_time AS from_time,
+                   r.to_time   AS to_time
+            ORDER BY r.from_time ASC
             """,
             {"entity_id": entity_id},
         )
-        return [_event_props_to_dict(row["ev"]) for row in rows]
+        return [
+            {
+                "container": row["container"],
+                "from_time": row["from_time"],
+                "to_time":   row["to_time"],
+            }
+            for row in rows
+        ]
 
     # ------------------------------------------------------------------ #
-    # Graph-native methods (no WorldQueryAPI equivalent)
+    # Reverse traversal — container -> entity
     # ------------------------------------------------------------------ #
 
     def whats_inside(self, container_id: str) -> list[dict[str, Any]]:
-        """Return all entities currently inside a given container."""
+        """All entities currently inside a container."""
         rows = self._graph.run_cypher(
             """
             MATCH (e:Entity)-[r:INSIDE]->(c:Entity {entity_id: $container_id})
@@ -91,7 +113,7 @@ class GraphQueryAPI:
         ]
 
     def whats_inside_at(self, container_id: str, timestamp: float) -> list[dict[str, Any]]:
-        """Return all entities that were inside a container at a given timestamp."""
+        """All entities that were inside a container at a given timestamp."""
         rows = self._graph.run_cypher(
             """
             MATCH (e:Entity)-[r:INSIDE]->(c:Entity {entity_id: $container_id})
@@ -116,7 +138,7 @@ class GraphQueryAPI:
         ]
 
     def who_ever_was_in(self, container_id: str) -> list[dict[str, Any]]:
-        """Return all entities that have ever had an INSIDE relationship to this container."""
+        """All entities that have ever had an INSIDE relationship to this container."""
         rows = self._graph.run_cypher(
             """
             MATCH (e:Entity)-[:INSIDE]->(c:Entity {entity_id: $container_id})
@@ -128,8 +150,12 @@ class GraphQueryAPI:
         )
         return [{"entity_id": r["entity_id"], "entity_type": r["entity_type"]} for r in rows]
 
+    # ------------------------------------------------------------------ #
+    # Discovery
+    # ------------------------------------------------------------------ #
+
     def list_entities(self, entity_type: str | None = None) -> list[dict[str, Any]]:
-        """Return all tracked entity IDs, optionally filtered by type."""
+        """All tracked entity IDs, optionally filtered by type."""
         if entity_type:
             rows = self._graph.run_cypher(
                 """
@@ -151,7 +177,7 @@ class GraphQueryAPI:
         return [{"entity_id": r["entity_id"], "entity_type": r["entity_type"]} for r in rows]
 
     def list_containers(self) -> list[str]:
-        """Return all entity IDs that have ever acted as a container."""
+        """All entity IDs that have ever acted as a container."""
         rows = self._graph.run_cypher(
             """
             MATCH ()-[:INSIDE]->(c:Entity)
@@ -161,74 +187,3 @@ class GraphQueryAPI:
             {},
         )
         return [r["container_id"] for r in rows]
-
-    def find_co_located(self, entity_id: str, timestamp: float) -> list[dict[str, Any]]:
-        """Return all other entities that were in the same container as entity_id at timestamp."""
-        rows = self._graph.run_cypher(
-            """
-            MATCH (e:Entity {entity_id: $entity_id})-[r1:INSIDE]->(c:Entity)
-            WHERE r1.from_time <= $timestamp
-              AND (r1.to_time IS NULL OR r1.to_time > $timestamp)
-            MATCH (other:Entity)-[r2:INSIDE]->(c)
-            WHERE r2.from_time <= $timestamp
-              AND (r2.to_time IS NULL OR r2.to_time > $timestamp)
-              AND other.entity_id <> $entity_id
-            RETURN other.entity_id AS entity_id,
-                   other.entity_type AS entity_type,
-                   c.entity_id AS shared_container
-            ORDER BY other.entity_id
-            """,
-            {"entity_id": entity_id, "timestamp": timestamp},
-        )
-        return [
-            {
-                "entity_id":        r["entity_id"],
-                "entity_type":      r["entity_type"],
-                "shared_container": r["shared_container"],
-            }
-            for r in rows
-        ]
-
-    def get_containment_history(self, entity_id: str) -> list[dict[str, Any]]:
-        """Return every container an entity has been inside, in order."""
-        rows = self._graph.run_cypher(
-            """
-            MATCH (e:Entity {entity_id: $entity_id})-[r:INSIDE]->(c:Entity)
-            RETURN c.entity_id AS container,
-                   r.from_time AS from_time,
-                   r.to_time   AS to_time
-            ORDER BY r.from_time ASC
-            """,
-            {"entity_id": entity_id},
-        )
-        return [
-            {
-                "container": row["container"],
-                "from_time": row["from_time"],
-                "to_time":   row["to_time"],
-            }
-            for row in rows
-        ]
-
-
-# ------------------------------------------------------------------ #
-# Helper
-# ------------------------------------------------------------------ #
-
-def _event_props_to_dict(props: dict[str, Any]) -> dict[str, Any]:
-    """Normalise an Event node's properties for MCP tool output."""
-    result: dict[str, Any] = {
-        "event_id":   props.get("event_id"),
-        "event_type": props.get("event_type"),
-        "timestamp":  props.get("timestamp"),
-        "parent":     props.get("new_parent"),
-        "visible":    props.get("new_visibility"),
-        "position":   None,
-    }
-    if "new_x" in props:
-        result["position"] = {
-            "x": props["new_x"],
-            "y": props["new_y"],
-            "z": props["new_z"],
-        }
-    return result

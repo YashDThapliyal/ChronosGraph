@@ -139,17 +139,17 @@ def build_context(graph_api: GraphQueryAPI) -> str:
 
     lines.append("")
 
-    # Full event log (relationship changes only)
-    lines.append("--- Event Log (all containment changes, chronological) ---")
+    # Containment timeline per entity (same data as history section, in event form)
+    lines.append("--- Containment Timeline (each move event) ---")
     for eid in moveable:
-        events = graph_api.what_happened(eid)
-        rel_events = [e for e in events if e.get("event_type") == "RelationshipChangedEvent"]
-        if rel_events:
+        history = graph_api.get_containment_history(eid)
+        if history:
             lines.append(f"  {eid}:")
-            for ev in rel_events:
-                lines.append(f"    t={ev['timestamp']:.2f}  moved to parent={ev['parent']}")
+            for h in history:
+                to_str = f"t={h['to_time']:.2f}" if h["to_time"] is not None else "present"
+                lines.append(f"    entered {h['container']} at t={h['from_time']:.2f}, left at {to_str}")
         else:
-            lines.append(f"  {eid}: no containment events")
+            lines.append(f"  {eid}: no moves recorded")
 
     lines.append("\n=== END OF WORLD STATE DUMP ===")
     return "\n".join(lines)
