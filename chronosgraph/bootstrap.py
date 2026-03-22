@@ -13,7 +13,7 @@ from core.event_engine import (
     RelationshipChangedEvent,
     VisibilityChangedEvent,
 )
-from episodes.hidden_object_episode import HiddenObjectEpisode
+from episodes.complex_episode import ComplexEpisode
 from simulator import AI2ThorSimulator
 from simulator.models import Observation
 from world.world_state_engine import WorldStateEngine
@@ -68,7 +68,7 @@ def bootstrap_world(
                           all events and entity snapshots are persisted to Neo4j.
     """
     simulator = AI2ThorSimulator()
-    episode = HiddenObjectEpisode()
+    episode = ComplexEpisode()
     change_detector = ChangeDetector()
     event_engine = EventEngine()
     world_engine = WorldStateEngine()
