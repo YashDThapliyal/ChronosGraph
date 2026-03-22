@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from query_api.world_query_api import WorldQueryAPI
+
+if TYPE_CHECKING:
+    from query_api.graph_query_api import GraphQueryAPI
 
 
 ToolHandler = Callable[[dict[str, Any]], dict[str, Any]]
@@ -30,26 +33,36 @@ class ToolDefinition:
         }
 
 
-def build_tool_registry(api: WorldQueryAPI) -> dict[str, ToolDefinition]:
-    """Create the MCP tool map for the current API instance."""
+def build_tool_registry(
+    api: WorldQueryAPI,
+    graph_api: Optional["GraphQueryAPI"] = None,
+) -> dict[str, ToolDefinition]:
+    """
+    Create the MCP tool map.
+
+    When graph_api is provided, existing tools are backed by Neo4j Cypher
+    queries and two additional graph-native tools are registered.
+    """
+    # Prefer graph_api for the 3 core tools when available
+    _query_api = graph_api if graph_api is not None else api
 
     def get_current_parent(arguments: dict[str, Any]) -> dict[str, Any]:
         entity_id = _require_string(arguments, "entity_id")
-        result = api.where_is(entity_id)
+        result = _query_api.where_is(entity_id)
         return {"parent": result["parent"]}
 
     def get_parent_at(arguments: dict[str, Any]) -> dict[str, Any]:
         entity_id = _require_string(arguments, "entity_id")
         timestamp = _require_number(arguments, "timestamp")
-        result = api.where_was(entity_id, timestamp)
+        result = _query_api.where_was(entity_id, timestamp)
         return {"parent": result["parent"]}
 
     def get_event_history(arguments: dict[str, Any]) -> dict[str, Any]:
         entity_id = _require_string(arguments, "entity_id")
-        history = api.what_happened(entity_id)
+        history = _query_api.what_happened(entity_id)
         return {"history": history}
 
-    return {
+    registry: dict[str, ToolDefinition] = {
         "get_current_parent": ToolDefinition(
             name="get_current_parent",
             description="Get the current parent receptacle of an entity.",
@@ -61,9 +74,7 @@ def build_tool_registry(api: WorldQueryAPI) -> dict[str, ToolDefinition]:
             },
             output_schema={
                 "type": "object",
-                "properties": {
-                    "parent": {"type": ["string", "null"]},
-                },
+                "properties": {"parent": {"type": ["string", "null"]}},
                 "required": ["parent"],
                 "additionalProperties": False,
             },
@@ -83,9 +94,7 @@ def build_tool_registry(api: WorldQueryAPI) -> dict[str, ToolDefinition]:
             },
             output_schema={
                 "type": "object",
-                "properties": {
-                    "parent": {"type": ["string", "null"]},
-                },
+                "properties": {"parent": {"type": ["string", "null"]}},
                 "required": ["parent"],
                 "additionalProperties": False,
             },
@@ -108,22 +117,12 @@ def build_tool_registry(api: WorldQueryAPI) -> dict[str, ToolDefinition]:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "timestamp": {"type": "number"},
-                                "parent": {"type": ["string", "null"]},
-                                "position": {
-                                    "type": ["object", "null"],
-                                    "properties": {
-                                        "x": {"type": "number"},
-                                        "y": {"type": "number"},
-                                        "z": {"type": "number"},
-                                    },
-                                    "required": ["x", "y", "z"],
-                                    "additionalProperties": False,
-                                },
-                                "visible": {"type": "boolean"},
+                                "timestamp":  {"type": "number"},
+                                "parent":     {"type": ["string", "null"]},
+                                "position":   {"type": ["object", "null"]},
+                                "visible":    {"type": ["boolean", "null"]},
                             },
-                            "required": ["timestamp", "parent", "position", "visible"],
-                            "additionalProperties": False,
+                            "additionalProperties": True,
                         },
                     }
                 },
@@ -133,6 +132,93 @@ def build_tool_registry(api: WorldQueryAPI) -> dict[str, ToolDefinition]:
             handler=get_event_history,
         ),
     }
+
+    # Graph-native tools — only registered when Neo4j is available
+    if graph_api is not None:
+
+        def find_entities_in_container(arguments: dict[str, Any]) -> dict[str, Any]:
+            container_id = _require_string(arguments, "container_id")
+            entities = graph_api.whats_inside(container_id)
+            return {"container_id": container_id, "entities": entities}
+
+        def get_containment_history(arguments: dict[str, Any]) -> dict[str, Any]:
+            entity_id = _require_string(arguments, "entity_id")
+            history = graph_api.get_containment_history(entity_id)
+            return {"entity_id": entity_id, "history": history}
+
+        registry["find_entities_in_container"] = ToolDefinition(
+            name="find_entities_in_container",
+            description=(
+                "Find all entities currently inside a given container. "
+                "Useful for answering 'what is in the drawer right now?'"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"container_id": {"type": "string"}},
+                "required": ["container_id"],
+                "additionalProperties": False,
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "container_id": {"type": "string"},
+                    "entities": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "entity_id":   {"type": "string"},
+                                "entity_type": {"type": "string"},
+                                "since":       {"type": "number"},
+                            },
+                            "required": ["entity_id", "entity_type", "since"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["container_id", "entities"],
+                "additionalProperties": False,
+            },
+            handler=find_entities_in_container,
+        )
+
+        registry["get_containment_history"] = ToolDefinition(
+            name="get_containment_history",
+            description=(
+                "Get the full containment history of an entity — every container "
+                "it has been inside, with timestamps showing when each period started and ended."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"entity_id": {"type": "string"}},
+                "required": ["entity_id"],
+                "additionalProperties": False,
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "entity_id": {"type": "string"},
+                    "history": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "container":  {"type": "string"},
+                                "from_time":  {"type": "number"},
+                                "to_time":    {"type": ["number", "null"]},
+                            },
+                            "required": ["container", "from_time", "to_time"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["entity_id", "history"],
+                "additionalProperties": False,
+            },
+            handler=get_containment_history,
+        )
+
+    return registry
 
 
 def _require_string(arguments: dict[str, Any], key: str) -> str:

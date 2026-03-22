@@ -8,6 +8,7 @@ from typing import Any
 
 from chronosgraph.bootstrap import bootstrap_world
 from query_api.world_query_api import WorldQueryAPI
+from world.world_state_engine import WorldStateEngine
 
 from .tools import ToolDefinition, build_tool_registry
 
@@ -25,8 +26,12 @@ class MethodNotFoundError(Exception):
 class MCPServer:
     """Minimal MCP server implementing tools/list and tools/call."""
 
-    def __init__(self, query_api: WorldQueryAPI) -> None:
-        self._tool_registry = build_tool_registry(query_api)
+    def __init__(
+        self,
+        query_api: WorldQueryAPI,
+        graph_api: Any = None,
+    ) -> None:
+        self._tool_registry = build_tool_registry(query_api, graph_api=graph_api)
 
     def serve_stdio(self) -> None:
         """Read JSON-RPC requests from stdin and write responses to stdout."""
@@ -145,10 +150,32 @@ class MCPServer:
 
 def main() -> None:
     """Run stdio MCP server."""
-    world_engine = bootstrap_world(demo=False)
-    query_api = WorldQueryAPI(world_engine)
-    server = MCPServer(query_api)
-    server.serve_stdio()
+    from config.settings import ChronosGraphSettings
+    settings = ChronosGraphSettings()
+
+    neo4j_graph = None
+    graph_api = None
+
+    if settings.use_neo4j:
+        from graph.neo4j_graph import Neo4jGraph
+        from query_api.graph_query_api import GraphQueryAPI
+        neo4j_graph = Neo4jGraph(
+            uri=settings.neo4j_uri,
+            user=settings.neo4j_user,
+            password=settings.neo4j_password,
+        )
+        neo4j_graph.connect()
+        graph_api = GraphQueryAPI(neo4j_graph)
+
+    try:
+        result = bootstrap_world(demo=False, neo4j_graph=neo4j_graph)
+        world_engine = result if isinstance(result, WorldStateEngine) else result[0]
+        query_api = WorldQueryAPI(world_engine)
+        server = MCPServer(query_api, graph_api=graph_api)
+        server.serve_stdio()
+    finally:
+        if neo4j_graph is not None:
+            neo4j_graph.disconnect()
 
 
 if __name__ == "__main__":
