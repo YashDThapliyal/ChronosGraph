@@ -1,6 +1,6 @@
 # ChronosGraph
 
-ChronosGraph is a temporal knowledge graph for AI agents. The core problem it solves: a language model has no persistent memory of what it has observed — it can only answer questions from what is in the current prompt. ChronosGraph gives an agent a real memory layer by watching a simulated world, recording every state change as a timestamped graph relationship, and exposing that graph through tools the agent can query. The result is an agent that can answer "where was the key before it was hidden?" or "what was in the drawer at step 3?" with exact, verifiable answers — not hallucinations.
+AI agents operating in dynamic environments have no persistent memory of what they have observed - they can only answer questions from what is present in the current context window. When that context grows large or spans many timesteps, models hallucinate, miss temporal overlaps, and confidently state the wrong location for objects they have already forgotten. We propose ChronosGraph: an approach that replaces context stuffing with a temporal knowledge graph. Every state change in the environment is recorded as a timestamped relationship in Neo4j, and the agent queries that graph through structured tools rather than reasoning over raw text. This gives verifiable, exact answers to questions like "where was the key before it was hidden?" regardless of how many objects or timesteps have elapsed. The inspiration for this project is robotics - specifically the question of how a humanoid robot could maintain reliable, queryable memory of its environment without hallucinating the location of objects it has moved, hidden, or interacted with across a long operational lifetime.
 
 ---
 
@@ -40,7 +40,7 @@ ChangeDetector --> [MovedEvent, VisibilityChangedEvent, RelationshipChangedEvent
 
 ## MCP Tools
 
-The agent has 8 tools structured as 3 forward traversal + 3 reverse traversal + 2 discovery. Tools are fetch primitives — the agent reasons over results, not the other way around.
+The agent has 8 tools structured as 3 forward traversal + 3 reverse traversal + 2 discovery. Tools are fetch primitives - the agent reasons over results, not the other way around.
 
 | Category | Tool | What it answers |
 |---|---|---|
@@ -61,11 +61,11 @@ The two discovery tools are essential at scale: the agent calls them first so it
 
 Three modes are run against the same question set and scored by an LLM judge against ground truth derived from live Cypher queries:
 
-- **Blind** — LLM receives only the question, no world data
-- **Context** — LLM receives a full text dump of all entity locations, containment histories, and events
-- **Graph** — LLM receives the 8 MCP tools and queries Neo4j directly
+- **Blind** - LLM receives only the question, no world data
+- **Context** - LLM receives a full text dump of all entity locations, containment histories, and events
+- **Graph** - LLM receives the 8 MCP tools and queries Neo4j directly
 
-### MegaEpisode — 6 objects, 61 steps, 14 questions (gpt-4.1)
+### MegaEpisode - 6 objects, 61 steps, 14 questions (gpt-4.1)
 
 | ID | Question | Category | Blind | Context | Graph |
 |----|----------|----------|-------|---------|-------|
@@ -87,9 +87,9 @@ Three modes are run against the same question set and scored by an LLM judge aga
 
 **Blind collapses at scale (1/14).** With 6 objects and 61 steps of movement, the LLM has no grounding. It says "I have no information" for unknown objects and hallucinates the most recently mentioned container for everything else.
 
-**Context stuffing fails on temporal overlap (m08).** The context dump contains all the information — but the LLM cannot reliably compute "which of these intervals are active at t=3.5" across multiple objects from text. For m08, it correctly found the egg (always in fridge) but missed that card's fridge window covered t=3.5. The graph agent answers m08 with a single Cypher range query: `WHERE r.from_time <= $t AND (r.to_time IS NULL OR r.to_time > $t)`.
+**Context stuffing fails on temporal overlap (m08).** The context dump contains all the information - but the LLM cannot reliably compute "which of these intervals are active at t=3.5" across multiple objects from text. For m08, it correctly found the egg (always in fridge) but missed that card's fridge window covered t=3.5. The graph agent answers m08 with a single Cypher range query: `WHERE r.from_time <= $t AND (r.to_time IS NULL OR r.to_time > $t)`.
 
-**m13 fails all three modes.** Co-location requires computing the intersection of two entities' interval histories and finding containers where they overlapped. This is the remaining unsolved case — it requires an interval join that none of the current modes handle correctly.
+**m13 fails all three modes.** Co-location requires computing the intersection of two entities' interval histories and finding containers where they overlapped. This is the remaining unsolved case - it requires an interval join that none of the current modes handle correctly.
 
 **Graph is ~3x slower than context** (6.8s vs 2.0s average) due to sequential tool-call round-trips. The trade-off is worth it where context accuracy degrades on temporal queries.
 
@@ -101,18 +101,18 @@ Three modes are run against the same question set and scored by an LLM judge aga
 
 | Layer | Responsibility |
 |---|---|
-| `simulator/` | Raw observation models — Position, EntityObservation, Observation |
+| `simulator/` | Raw observation models - Position, EntityObservation, Observation |
 | `ingestion/` | Bridge between simulator output and core system |
 | `core/` | ChangeDetector, typed events, belief interfaces |
 | `world/` | In-memory temporal state engine (entity history, snapshot queries) |
 | `storage/` | Neo4jEventStore + Neo4jEntityStore (persist events and INSIDE lifecycle) |
-| `graph/` | Neo4jGraph — driver wrapper, `run_cypher` primitive, index management |
+| `graph/` | Neo4jGraph - driver wrapper, `run_cypher` primitive, index management |
 | `query_api/` | WorldQueryAPI (in-memory) and GraphQueryAPI (Cypher-backed) |
 | `mcp_server/` | JSON-RPC 2.0 MCP server, 8-tool registry |
 | `agent/` | OpenAI tool-calling agent with retry/backoff |
 | `episodes/` | ComplexEpisode (2 objects) and MegaEpisode (6 objects) |
 | `benchmark/` | Three-mode benchmark with LLM judge scoring and latency tracking |
-| `ui/` | Streamlit demo — frame playback, agent QA, graph visualization |
+| `ui/` | Streamlit demo - frame playback, agent QA, graph visualization |
 
 **Dependency rules:** `core/` and `storage/` must not import from `simulator/`. `ingestion/` is the only module that bridges both. All cross-layer interaction goes through abstract interfaces.
 
